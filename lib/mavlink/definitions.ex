@@ -6,12 +6,13 @@ defmodule Mavlink.Definitions do
   """
   
   require Record
-  import Record, only: [defrecord: 2, extract_all: 1]
+  import Record, only: [defrecord: 2, extract: 2]
+  import String, only: [to_integer: 1]
   
-  for {rec_name, fields} <- extract_all( from_lib: "xmerl/include/xmerl.hrl") do
-    defrecord rec_name, fields
-  end
-
+  
+  defrecord :xmlAttribute, extract(:xmlAttribute, from_lib: "xmerl/include/xmerl.hrl")
+  defrecord :xmlText, extract(:xmlText, from_lib: "xmerl/include/xmerl.hrl")
+  
 
   defmacro __using__(_options) do
     quote do
@@ -21,48 +22,24 @@ defmodule Mavlink.Definitions do
   
 
   def load_definitions(path) do
-    {
-      xmlElement(
-        name: :mavlink,
-        content: [
-          _,  # whitespace
-          xmlElement(
-            name: :version,
-            content: [
-              xmlText(
-                value: version
-              )
-            ]
-          ),
-          _,  # whitespace
-          xmlElement(
-            name: :dialect,
-            content: [
-              xmlText(
-                value: dialect
-              )
-            ]
-          ),
-          _,  # whitespace
-          xmlElement(
-            name: :enums,
-            content: enums
-          ),
-          _,  # whitespace
-          xmlElement(
-            name: :messages,
-            content: messages
-          )| _
-        ]
-      ),
-      _
-    } = :xmerl_scan.file(path)
+    {defs, _} = :xmerl_scan.file(path)
     %{
-      version: List.to_integer(version),
-      dialect: List.to_integer(dialect),
-      enums: enums,
-      messages: messages
+      version:  :xmerl_xpath.string('/mavlink/version/text()', defs) |> extract_text |> to_integer,
+      dialect:  :xmerl_xpath.string('/mavlink/dialect/text()', defs) |> extract_text |> to_integer,
+      enums:    (for enum <- :xmerl_xpath.string('/mavlink/enums/enum', defs), do: parse_enum(enum)),
+      messages: (for msg <- :xmerl_xpath.string('/mavlink/messages/message', defs), do: parse_msg(msg))
     }
+  end
+  
+  defp extract_text([xmlText(value: value)]), do: List.to_string(value)
+  defp extract_text(_), do: nil
+  
+  defp parse_enum(element) do
+    nil
+  end
+  
+   defp parse_msg(element) do
+    nil
   end
   
 end
