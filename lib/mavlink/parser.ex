@@ -1,17 +1,59 @@
 defmodule Mavlink.Parser do
   @moduledoc """
-  Parse a mavlink xml file
+  Parse a mavlink xml file into an idiomatic Elixir representation:
+  
+  %{
+      version: 0,
+      dialect: 0,
+      enums: [
+        %{
+          name: "MAV_...",
+          description: "Micro air vehicle...",
+          entries: [
+            %{
+              value: 0,
+              name: :mav_autopilot_generic,
+              description: "Generic autopilot..."
+              params: [                         (only used by commands)
+                %{
+                    index: 0,
+                    description: ""
+                 },
+                 ... more entry params
+              ]
+             },
+             ... more enum entries
+          ]
+         },
+        ... more enums
+      ],
+      messages: [
+        %{
+          id: 0,
+          name: :optical_flow,
+          description: "Optical flow...",
+          fields: [
+            %{
+                type: :uint16,
+                ordinality: 0,
+                name: :flow_x,
+                units: "dpixels",                 (note string not atom)
+                description: "Flow in pixels..."
+             },
+             ... more message fields
+          ]
+         },
+        ... more messages
+      ]
+   }
   """
   
  
-  require Record
-
   import Enum, only: [empty?: 1]
   import List, only: [first: 1]
   import Record, only: [defrecord: 2, extract: 2]
   import String, only: [to_integer: 1, downcase: 1, to_atom: 1, split: 3, trim_trailing: 2]
 
-  
   
   @xmerl_header "xmerl/include/xmerl.hrl"
   defrecord :xmlAttribute, extract(:xmlAttribute, from_lib: @xmerl_header)
@@ -89,14 +131,16 @@ defmodule Mavlink.Parser do
   
   
   defp parse_type_ordinality(type_string) do
-    [type | ordinality] = split(type_string, ["[", "]"], trim: true)
+    [type | ordinality] = type_string
+      |> split(["[", "]"], trim: true)
+      
     {
       type |> trim_trailing("_t") |> to_atom,
       cond do
-        empty? ordinality ->
+        ordinality |> empty? ->
           0
         true ->
-          (ordinality |> first |> to_integer)
+          ordinality |> first |> to_integer
       end
     }
   end
