@@ -7,14 +7,14 @@ defmodule Mavlink.Parser do
       dialect: 0,
       enums: [
         %{
-          name: "MAV_...",
+          name: :mav_autopilot,
           description: "Micro air vehicle...",
           entries: [
             %{
               value: 0,
-              name: :mav_autopilot_generic,
+              name: :mav_autopilot_generic,         (use atoms for identifiers)
               description: "Generic autopilot..."
-              params: [                         (only used by commands)
+              params: [                             (only used by commands)
                 %{
                     index: 0,
                     description: ""
@@ -37,7 +37,7 @@ defmodule Mavlink.Parser do
                 type: :uint16,
                 ordinality: 0,
                 name: :flow_x,
-                units: "dpixels",                 (note string not atom)
+                units: "dpixels",                   (note: string not atom)
                 description: "Flow in pixels..."
              },
              ... more message fields
@@ -60,7 +60,7 @@ defmodule Mavlink.Parser do
   defrecord :xmlText, extract(:xmlText, from_lib: @xmerl_header)
   
 
-  def parse_definitions(path) do
+  def parse_mavlink_xml(path) do
     {defs, _} = :xmerl_scan.file(path)
     %{
       version:  :xmerl_xpath.string('/mavlink/version/text()', defs) |> extract_text |> to_integer,
@@ -71,15 +71,10 @@ defmodule Mavlink.Parser do
   end
   
   
-  defp extract_text([xmlText(value: value)]), do: List.to_string(value)
-  defp extract_text([xmlAttribute(value: value)]), do: List.to_string(value)
-  defp extract_text(_), do: nil
-  
-  
   defp parse_enum(element) do
     %{
       name:         :xmerl_xpath.string('@name', element) |> extract_text |> downcase |> to_atom,
-      description:  :xmerl_xpath.string('/enum/description/text()', element) |> extract_text,
+      description:  :xmerl_xpath.string('/enum/description/text()', element) |> extract_text |> nil_to_empty_string,
       entries:      (for entry <- :xmerl_xpath.string('/enum/entry', element), do: parse_entry(entry))
     }
   end
@@ -90,7 +85,7 @@ defmodule Mavlink.Parser do
     %{
       value:        (if not empty?(value_attr), do: extract_text(value_attr) |> to_integer, else: nil),
       name:         :xmerl_xpath.string('@name', element) |> extract_text |> downcase |> to_atom,
-      description:  :xmerl_xpath.string('/entry/description/text()', element) |> extract_text,
+      description:  :xmerl_xpath.string('/entry/description/text()', element) |> extract_text |> nil_to_empty_string,
       params:       (for param <- :xmerl_xpath.string('/entry/param', element), do: parse_param(param))
     }
   end
@@ -144,5 +139,14 @@ defmodule Mavlink.Parser do
       end
     }
   end
+  
+  
+  defp extract_text([xmlText(value: value)]), do: List.to_string(value)
+  defp extract_text([xmlAttribute(value: value)]), do: List.to_string(value)
+  defp extract_text(_), do: nil
+  
+  
+  defp nil_to_empty_string(nil), do: ""
+  defp nil_to_empty_string(value), do: value
   
 end

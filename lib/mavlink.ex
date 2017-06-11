@@ -1,6 +1,5 @@
 defmodule Mavlink do
   use Application
-  use Mavlink.Definitions
   
   #load_definitions("../config/common.xml")
 

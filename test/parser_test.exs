@@ -1,11 +1,11 @@
-defmodule DefinitionsTest do
+defmodule ParserTest do
   use ExUnit.Case
   import Mavlink.Parser
 
   @root_dir File.cwd!
 
-  test "parse definitions" do
-    IO.inspect parse_definitions(
-      "#{@root_dir}/config/common.xml")
+  test "parse mavlink XML" do
+    parse_mavlink_xml("#{@root_dir}/config/common.xml")
   end
+  
 end
