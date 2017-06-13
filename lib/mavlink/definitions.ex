@@ -24,14 +24,68 @@ defmodule Mavlink.Definitions do
      
     # Enumeration Details
     enum_details = get_enum_details(enums)
-    
+    for enum_detail <- enum_details do
+      Map.get(enum_detail, :describe_kw)
+    end
     # Output definitions, grouping similar functions etc
     quote do
       @mavlink_version  unquote(version)
       @mavlink_dialect  unquote(dialect)
       unquote(for enum_detail <- enum_details, do: Map.get(enum_detail, :type_ast))
-      unquote(for enum_detail <- enum_details, do: Map.get(enum_detail, :describe_ast))
-      unquote(for enum_detail <- enum_details, do: Map.get(enum_detail, :value_ast))
+      #unquote(for enum_detail <- enum_details, do: Map.get(enum_detail, :value_ast))
+      unquote(
+        {
+          :def,
+          [
+            context: Elixir,
+            import: Kernel
+          ],
+          [
+            {
+              :describe,
+              [context: Elixir],
+              [{:key, [], Elixir}]
+            },
+            [
+              do: {
+                    :|>,
+                    [context: Elixir, import: Kernel],
+                    [
+                      {
+                        :%{},
+                        [],
+                        for enum_detail <- enum_details do
+                          Map.get(enum_detail, :describe_kw)
+                        end |> List.flatten
+                      },
+                      {
+                        {
+                          :.,
+                          [],
+                          [
+                            {
+                              :__aliases__,
+                              [alias: false],
+                              [:Map]
+                            },
+                            :get
+                          ]
+                        },
+                        [],
+                        [
+                          {
+                            :key,
+                            [],
+                            Elixir
+                          }
+                        ]
+                      }
+                    ]
+                  }
+            ]
+          ]
+        }
+      )
     end #|> Macro.to_string |> IO.puts
     
   end
@@ -55,10 +109,8 @@ defmodule Mavlink.Definitions do
           @type unquote({name, [], nil}) :: unquote(
             type_atom_list(Enum.map(entry_details, & &1[:name])))
         end,
-        describe_ast: quote do
-          def describe(unquote(name)), do: unquote(description)
-          unquote(Enum.map(entry_details, & &1[:describe_ast]))
-        end,
+        describe_kw: [{name, description}] ++
+           Enum.map(entry_details, & &1[:describe_kw]),
         value_ast: quote do
           unquote(Enum.map(entry_details, & &1[:value_ast]))
         end
@@ -81,15 +133,12 @@ defmodule Mavlink.Definitions do
       
       %{
         name: entry_name,
-        describe_ast: quote do
-          def describe(unquote(entry_name)), do: unquote(entry_description)
-          unquote(Enum.map(param_details, & &1[:describe_ast]))
-          def describe(unquote(entry_name), _), do: ""
-        end,
+        describe_kw: {entry_name, entry_description},
         value_ast: quote do
           def value(unquote(entry_name)), do: unquote(entry_value)
         end
       }
+      #def describe(unquote(entry_name), _), do: ""
     end
   end
   
@@ -102,9 +151,7 @@ defmodule Mavlink.Definitions do
        } = param
        
       %{
-        describe_ast: quote do
-          def describe(unquote(entry_name), unquote(param_index)), do: unquote(param_description)
-        end
+        #describe_param_dict: Keyword.put(Keyword.new, {entry_name, param_index}, param_description)
        }
     end
   end
@@ -123,5 +170,18 @@ defmodule Mavlink.Definitions do
     {:|, [], [a, type_atom_list(tail)]}
   end
   
+  
+  # Helper function to concatenate list of keywords
+  defp concat_kw_list([]) do
+    Keyword.new
+  end
+  
+  defp concat_kw_list([a]) do
+    a
+  end
+  
+  defp concat_kw_list([a, [b] | tail]) do
+    concat_kw_list([Keyword.merge(a, b), tail])
+  end
   
 end
