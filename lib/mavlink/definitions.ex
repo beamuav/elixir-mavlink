@@ -31,61 +31,17 @@ defmodule Mavlink.Definitions do
     quote do
       @mavlink_version  unquote(version)
       @mavlink_dialect  unquote(dialect)
-      unquote(for enum_detail <- enum_details, do: Map.get(enum_detail, :type_ast))
-      #unquote(for enum_detail <- enum_details, do: Map.get(enum_detail, :value_ast))
-      unquote(
-        {
-          :def,
-          [
-            context: Elixir,
-            import: Kernel
-          ],
-          [
-            {
-              :describe,
-              [context: Elixir],
-              [{:key, [], Elixir}]
-            },
-            [
-              do: {
-                    :|>,
-                    [context: Elixir, import: Kernel],
-                    [
-                      {
-                        :%{},
-                        [],
-                        for enum_detail <- enum_details do
-                          Map.get(enum_detail, :describe_kw)
-                        end |> List.flatten
-                      },
-                      {
-                        {
-                          :.,
-                          [],
-                          [
-                            {
-                              :__aliases__,
-                              [alias: false],
-                              [:Map]
-                            },
-                            :get
-                          ]
-                        },
-                        [],
-                        [
-                          {
-                            :key,
-                            [],
-                            Elixir
-                          }
-                        ]
-                      }
-                    ]
-                  }
-            ]
-          ]
-        }
-      )
+      unquote_splicing(for enum_detail <- enum_details, do: Map.get(enum_detail, :type_ast))
+      unquote_splicing(for enum_detail <- enum_details, do: Map.get(enum_detail, :value_ast))
+      def describe(key) do
+        unquote({
+          :%{}, [],
+          for enum_detail <- enum_details do
+            Map.get(enum_detail, :describe_kw)
+          end |> List.flatten})
+        |> Map.get(key)
+      end
+
     end #|> Macro.to_string |> IO.puts
     
   end
