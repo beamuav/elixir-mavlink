@@ -52,6 +52,7 @@ defmodule Mavlink.Parser do
   import Enum, only: [empty?: 1]
   import List, only: [first: 1]
   import Record, only: [defrecord: 2, extract: 2]
+  import Regex, only: [replace: 3]
   import String, only: [to_integer: 1, downcase: 1, to_atom: 1, split: 3, trim_trailing: 2]
 
   
@@ -141,10 +142,14 @@ defmodule Mavlink.Parser do
   end
   
   
-  defp extract_text([xmlText(value: value)]), do: List.to_string(value)
-  defp extract_text([xmlAttribute(value: value)]), do: List.to_string(value)
+  defp extract_text([xmlText(value: value)]), do: clean_string(value)
+  defp extract_text([xmlAttribute(value: value)]), do: clean_string(value)
   defp extract_text(_), do: nil
   
+  defp clean_string(s) do
+    trimmed = s |> List.to_string |> String.trim
+    replace(~r/\s+/, trimmed, " ")
+  end
   
   defp nil_to_empty_string(nil), do: ""
   defp nil_to_empty_string(value), do: value
