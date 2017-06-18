@@ -4,6 +4,9 @@ defmodule MavlinkTest do
  
   test "generate" do
     root_dir = File.cwd!
-    IO.puts run(["generate", "#{root_dir}/test/mavlink.xml"])
+    IO.puts run([
+      "generate",
+      "#{root_dir}/test/mavlink.xml",
+      "#{root_dir}/test/Mavlink.ex"])
   end
 end

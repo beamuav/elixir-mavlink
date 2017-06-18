@@ -3,64 +3,174 @@ defmodule Mix.Tasks.Mavlink do
 
   
   import Mavlink.Parser
-  import Enum, only: [count: 1, join: 2, map: 2, filter: 2, filter_map: 3]
+  import Enum, only: [count: 1, join: 2, map: 2, filter_map: 3]
   import String, only: [trim: 1]
 
 
   @shortdoc "Generate Mavlink Module from XML"
-  def run(["generate", path]) do
+  def run(["generate", input, output]) do
     %{
       version: version,
       dialect: dialect,
       enums: enums,
       messages: messages
-     } = parse_mavlink_xml(path)
+     } = parse_mavlink_xml(input)
      
-     enum_details = get_enum_details(enums)
+    enum_details = get_enum_details(enums)
      
-     """
-     defmodule Mavlink do
+    File.write(output,
+    """
+    defmodule Mavlink do
        
-       @typedoc "An atom representing a Mavlink enumeration type"
-       @type mav_enum_type :: #{map(enums, & ":#{&1[:name]}") |> join(" | ")}
+      @typedoc "An atom representing a Mavlink enumeration type"
+      @type enum_type :: #{map(enums, & ":#{&1[:name]}") |> join(" | ")}
        
-       @typedoc "An atom representing a Mavlink enumeration type value"
-       @type mav_enum_value :: #{map(enums, & "#{&1[:name]}") |> join(" | ")}
+      @typedoc "An atom representing a Mavlink enumeration type value"
+      @type enum_value :: #{map(enums, & "#{&1[:name]}") |> join(" | ")}
+      
+      #{enum_details |> map(& &1[:type]) |> join("\n  ")}
+      
+      @typedoc "A parameter description"
+      @type param_description :: %{
+        index: pos_integer,
+        description: String.t
+      }
+      
+      @typedoc "A list of parameter descriptions"
+      @type param_description_list :: [param_description]
+      
+      @typedoc "Type used for field in encoded message"
+      @type field_type :: int8 | int16 | int32 | int64 | uint8 | uint16 | uint32 | uint64 | float
+      
+      @typedoc "8-bit signed integer"
+      @type int8 :: -128..127
+      
+      @typedoc "16-bit signed integer"
+      @type int16 :: -32_768..32_767
+      
+      @typedoc "32-bit signed integer"
+      @type int32 :: −2_147_483_647..2_147_483_647
+      
+      @typedoc "64-bit signed integer"
+      @type int64 :: integer
+      
+      @typedoc "8-bit unsigned integer"
+      @type uint8 :: 0..255
+      
+      @typedoc "16-bit unsigned integer"
+      @type uint16 :: 0..65_535
+      
+      @typedoc "32-bit unsigned integer"
+      @type uint32 :: 0..4_294_967_295
+      
+      @typedoc "64-bit unsigned integer"
+      @type uint64 :: pos_integer
+      
+      @typedoc "0 -> not an array 1..255 an array"
+      @type field_ordinality :: 0..255
+      
+      @typedoc "Measurement unit of field value"
+      @type field_unit :: :% | :bytes | :bps | :c% | :cA | :cdeg | :cmps | :deg | :degE7 | :Mibytes | :m | :mm | :ms | :mV | :pix | :s | :us  # TODO generate unique set from fields
+      
+      @typedoc "A message field description"
+      @type field_description :: %{
+        type: field_type,
+        ordinality: field_ordinality,
+        name: String.t,
+        units: field_unit,
+        description : String.t
+      }
+      
+      @typedoc "A list of message field descriptions"
+      @type field_description_list :: [field_description]
+      
+      @typedoc "A Mavlink message"
+      @type message :: Heartbeat.t  # TODO generate
+      
+      @typedoc "A Mavlink message id"
+      @type message_id :: 0..1_000
        
-       #{enum_details |> map(& &1[:type]) |> join("\n  ")}
+      @doc "Mavlink version"
+      @spec mavlink_version() :: integer
+      def mavlink_version(), do: #{version}
        
-       @typedoc "A parameter description"
-       @type param_description :: {integer, String.t}
-       @typedoc "A list of parameter descriptions"
-       @type param_description_list :: [param_description]
+      @doc "Mavlink dialect"
+      @spec mavlink_dialect() :: integer
+      def mavlink_dialect(), do: #{dialect}
        
-       @doc "Mavlink version"
-       @spec mavlink_version() :: integer
-       def mavlink_version(), do: #{version}
+      @doc "Return a String description of a Mavlink enumeration"
+      @spec describe(mav_enum_type | mav_enum_value) :: String.t
+      #{enum_details |> map(& &1[:describe]) |> join("\n  ") |> trim}
        
-       @doc "Mavlink dialect"
-       @spec mavlink_dialect() :: integer
-       def mavlink_dialect(), do: #{dialect}
+      @doc "Return keyword list of mav_cmd parameters"
+      @spec describe_params(mav_cmd) :: param_description_list
+      #{enum_details |> map(& &1[:describe_params]) |> join("\n  ") |> trim}
        
-       @doc "Return a String description of a Mavlink enumeration"
-       @spec describe(mav_enum_type | mav_enum_value) :: String.t
-       #{enum_details |> map(& &1[:describe]) |> join("\n  ") |> trim}
+      @doc "Return encoded integer value used in a Mavlink message for an enumeration value"
+      @spec encode(mav_enum_value) :: integer
+      #{enum_details |> map(& &1[:encode]) |> join("\n  ") |> trim}
        
-       @doc "Return keyword list of mav_cmd parameters"
-       @spec describe_params(mav_cmd) :: param_description_list
-       #{enum_details |> map(& &1[:describe_params]) |> join("\n  ") |> trim}
+      @doc "Return the atom representation of a Mavlink enumeration value from the enumeration type and encoded integer"
+      @spec decode(mav_enum_type, integer) :: mav_enum_value
+      #{enum_details |> map(& &1[:decode]) |> join("\n  ") |> trim}
+      
+      @doc "Convert a binary into a Mavlink message"
+      @spec decode(<<_:_>>) :: message
+      def decode(<<header | body>>) do
+        # TODO
+      end
+      
+      defprotocol Message do
+        @doc "Encode a message"
+        @spec encode(message) :: <<_:_>>
+        def encode(message)
+        
+        @doc "Get message id"
+        @spec id(message) :: message_id
+        def id(message)
+        
+        @doc "Describe message"
+        @spec describe(message) :: String.t
+        def describe(message)
+        
+        @doc "Return keyword list of field details"
+        @spec describe_fields(message) :: field_descrption_list
+        def describe_fields(message)
+      end
+      
+      defmodule Heartbeat do
+        
+        defstruct \
+          type: nil,
+          autopilot: nil,
+          base_mode: nil,
+          custom_mode: nil,
+          system_status: nil,
+          mavlink_version: #{version}
        
-       @doc "Return encoded integer value used in a Mavlink message for an enumeration value"
-       @spec encode(mav_enum_value) :: integer
-       #{enum_details |> map(& &1[:encode]) |> join("\n  ") |> trim}
-       
-       @doc "Return the atom representation of a Mavlink enumeration value from the enumeration type and encoded integer"
-       @spec decode(mav_enum_type, integer) :: mav_enum_value
-       #{enum_details |> map(& &1[:decode]) |> join("\n  ") |> trim}
-       
-     end
-     """
-     
+        @doc "The heartbeat message shows that a system is present and responding...\nType of the MAV..."
+        @type t :: %Heartbeat{
+          type: mav_type,
+          autopilot: mav_autopilot,
+          base_mode: mav_mode_flag,
+          custom_mode: uint32,
+          system_status: mav_state,
+          mavlink_version: uint8
+        }
+        
+        defimpl Message, for: Heartbeat do
+          def id, do: 0
+          def encode(message), do: <<>>
+          def describe(message), do: "The heartbeat message shows..."
+          def describe_fields(message), do: []
+        end
+        
+      end
+      
+    end
+    """
+    )
+    
   end
   
   
