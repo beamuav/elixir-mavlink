@@ -4,7 +4,7 @@ defmodule Mix.Tasks.Mavlink do
   
   import Mavlink.Parser
   import Enum, only: [count: 1, join: 2, map: 2, filter_map: 3]
-  import String, only: [trim: 1]
+  import String, only: [trim: 1, replace: 3]
 
 
   @shortdoc "Generate Mavlink Module from XML"
@@ -49,7 +49,7 @@ defmodule Mix.Tasks.Mavlink do
       @type int16 :: -32_768..32_767
       
       @typedoc "32-bit signed integer"
-      @type int32 :: −2_147_483_647..2_147_483_647
+      @type int32 :: -2_147_483_647..2_147_483_647
       
       @typedoc "64-bit signed integer"
       @type int64 :: integer
@@ -70,7 +70,7 @@ defmodule Mix.Tasks.Mavlink do
       @type field_ordinality :: 0..255
       
       @typedoc "Measurement unit of field value"
-      @type field_unit :: :% | :bytes | :bps | :c% | :cA | :cdeg | :cmps | :deg | :degE7 | :Mibytes | :m | :mm | :ms | :mV | :pix | :s | :us  # TODO generate unique set from fields
+      @type field_unit :: :pc | :bytes | :bps | :cpc | :cA | :cdeg | :cmps | :deg | :degE7 | :Mibytes | :m | :mm | :ms | :mV | :pix | :s | :us  # TODO generate unique set from fields
       
       @typedoc "A message field description"
       @type field_description :: %{
@@ -78,7 +78,7 @@ defmodule Mix.Tasks.Mavlink do
         ordinality: field_ordinality,
         name: String.t,
         units: field_unit,
-        description : String.t
+        description: String.t
       }
       
       @typedoc "A list of message field descriptions"
@@ -99,7 +99,7 @@ defmodule Mix.Tasks.Mavlink do
       def mavlink_dialect(), do: #{dialect}
        
       @doc "Return a String description of a Mavlink enumeration"
-      @spec describe(mav_enum_type | mav_enum_value) :: String.t
+      @spec describe(enum_type | enum_value) :: String.t
       #{enum_details |> map(& &1[:describe]) |> join("\n  ") |> trim}
        
       @doc "Return keyword list of mav_cmd parameters"
@@ -107,62 +107,56 @@ defmodule Mix.Tasks.Mavlink do
       #{enum_details |> map(& &1[:describe_params]) |> join("\n  ") |> trim}
        
       @doc "Return encoded integer value used in a Mavlink message for an enumeration value"
-      @spec encode(mav_enum_value) :: integer
+      @spec encode(enum_value) :: integer
       #{enum_details |> map(& &1[:encode]) |> join("\n  ") |> trim}
        
       @doc "Return the atom representation of a Mavlink enumeration value from the enumeration type and encoded integer"
-      @spec decode(mav_enum_type, integer) :: mav_enum_value
+      @spec decode(enum_type, integer) :: enum_value
       #{enum_details |> map(& &1[:decode]) |> join("\n  ") |> trim}
       
       @doc "Convert a binary into a Mavlink message"
-      @spec decode(<<_:_>>) :: message
-      def decode(<<header | body>>) do
+      @spec decode(<<>>) :: message
+      def decode(<<>>) do
         # TODO
       end
       
       defprotocol Message do
         @doc "Encode a message"
-        @spec encode(message) :: <<_:_>>
-        def encode(message)
+        @spec encode_msg(Mavlink.message) :: <<>>
+        def encode_msg(message)
         
         @doc "Get message id"
-        @spec id(message) :: message_id
-        def id(message)
+        @spec msg_id(Mavlink.message) :: Mavlink.message_id
+        def msg_id(message)
         
         @doc "Describe message"
-        @spec describe(message) :: String.t
-        def describe(message)
+        @spec describe_msg(Mavlink.message) :: String.t
+        def describe_msg(message)
         
         @doc "Return keyword list of field details"
-        @spec describe_fields(message) :: field_descrption_list
-        def describe_fields(message)
+        @spec describe_msg_fields(Mavlink.message) :: Mavlink.field_descrption_list
+        def describe_msg_fields(message)
       end
       
       defmodule Heartbeat do
         
-        defstruct \
-          type: nil,
-          autopilot: nil,
-          base_mode: nil,
-          custom_mode: nil,
-          system_status: nil,
-          mavlink_version: #{version}
+        defstruct type: nil, autopilot: nil, base_mode: nil, custom_mode: nil, system_status: nil, mavlink_version: #{version}
        
-        @doc "The heartbeat message shows that a system is present and responding...\nType of the MAV..."
+        @typedoc "The heartbeat message shows that a system is present and responding...Type of the MAV..."
         @type t :: %Heartbeat{
-          type: mav_type,
-          autopilot: mav_autopilot,
-          base_mode: mav_mode_flag,
-          custom_mode: uint32,
-          system_status: mav_state,
-          mavlink_version: uint8
+          type: Mavlink.mav_type,
+          autopilot: Mavlink.mav_autopilot,
+          base_mode: Mavlink.mav_mode_flag,
+          custom_mode: Mavlink.uint32,
+          system_status: Mavlink.mav_state,
+          mavlink_version: Mavlink.uint8
         }
         
         defimpl Message, for: Heartbeat do
-          def id, do: 0
-          def encode(message), do: <<>>
-          def describe(message), do: "The heartbeat message shows..."
-          def describe_fields(message), do: []
+          def msg_id(message), do: 0
+          def encode_msg(message), do: <<>>
+          def describe_msg(message), do: "The heartbeat message shows..."
+          def describe_msg_fields(message), do: []
         end
         
       end
@@ -215,12 +209,19 @@ defmodule Mix.Tasks.Mavlink do
         params: entry_params
       } = entry
       
+      entry_value_string = cond do
+        entry_value == nil ->
+          "nil"
+        true ->
+          entry_value
+      end
+      
       %{
         name: entry_name,
-        describe: ~s/def describe(:#{entry_name}), do: "#{entry_description}"/,
+        describe: ~s/def describe(:#{entry_name}), do: "#{entry_description |> escape_dq}"/,
         describe_params: get_param_details(entry_name, entry_params),
-        encode: ~s/def encode(:#{entry_name}), do: #{entry_value}/,
-        decode: ~s/def decode(:#{enum_name}, #{entry_value}), do: :#{entry_name}/
+        encode: ~s/def encode(:#{entry_name}), do: #{entry_value_string}/,
+        decode: ~s/def decode(:#{enum_name}, #{entry_value_string}), do: :#{entry_name}/
       }
     end
   end
@@ -232,9 +233,13 @@ defmodule Mix.Tasks.Mavlink do
         nil
       true ->
         ~s/def describe_params(:#{entry_name}), do: [/ <>
-        (map(entry_params, & ~s/#{&1[:index]}: "#{&1[:description]}"/) |> join(", ")) <>
+        (map(entry_params, & ~s/{#{&1[:index]}, "#{&1[:description]}"}/) |> join(", ")) <>
         ~s/]/
     end
+  end
+  
+  defp escape_dq(s) do
+    s |> replace(~S/"/, ~s/\\"/)
   end
   
 end
