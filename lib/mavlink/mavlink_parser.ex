@@ -120,7 +120,9 @@ defmodule Mavlink.Parser do
       type:         type,
       ordinality:   ordinality,
       name:         :xmerl_xpath.string('@name', element) |> extract_text |> to_atom,
-      units:        :xmerl_xpath.string('@units', element) |> extract_text,
+      enum:         :xmerl_xpath.string('@enum', element) |> extract_text |> to_atom_or_nil,
+      display:      :xmerl_xpath.string('@display', element) |> extract_text |> to_atom_or_nil,
+      units:        :xmerl_xpath.string('@units', element) |> extract_text |> to_atom_or_nil,
       description:  :xmerl_xpath.string('/field/text()', element) |> extract_text
     }
   end
@@ -153,5 +155,8 @@ defmodule Mavlink.Parser do
   
   defp nil_to_empty_string(nil), do: ""
   defp nil_to_empty_string(value), do: value
+  
+  defp to_atom_or_nil(nil), do: nil
+  defp to_atom_or_nil(value), do: to_atom(value)
   
 end
