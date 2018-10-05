@@ -10,6 +10,31 @@ defmodule Mavlink.Utils do
   
   
   import List, only: [flatten: 1]
+  import Enum, only: [sort_by: 2]
+  
+  
+  @doc """
+  Sort parsed message fields into wire order according
+  to https://mavlink.io/en/guide/serialization.html
+  """
+  @spec wire_order(List) :: List
+  def wire_order(fields) do
+    type_order_map = %{
+      uint64: 1,
+      int64:  1,
+      double: 1,
+      uint32: 2,
+      int32:  2,
+      float:  2,
+      uint16: 3,
+      int16:  3,
+      uint8:  4,
+      int8:   4
+    }
+    
+    sort_by(fields, &Map.fetch(type_order_map, &1))
+    
+  end
   
   
   @doc """
