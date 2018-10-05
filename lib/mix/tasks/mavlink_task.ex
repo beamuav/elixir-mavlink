@@ -3,6 +3,7 @@ defmodule Mix.Tasks.Mavlink do
 
   
   import Mavlink.Parser
+  import Mavlink.Utils
   import DateTime
   import Enum, only: [count: 1, join: 2, map: 2, filter_map: 3]
   import String, only: [trim: 1, replace: 3]
@@ -75,12 +76,15 @@ defmodule Mix.Tasks.Mavlink do
       @type field_unit :: :pc | :bytes | :bps | :cpc | :cA | :cdeg | :cmps | :deg | :degE7 | :Mibytes | :m | :mm | :ms | :mV | :pix | :s | :us  # TODO generate unique set from fields
       
       @typedoc "A message field description"
-      @type field_description :: %{
-        type: field_type,
-        ordinality: field_ordinality,
-        name: String.t,
-        units: field_unit,
-        description: String.t
+      @type field_description :: {
+        field_type,
+        field_ordinality,
+        atom,
+        nil | enum_type,
+        nil | :bitmask,
+        nil | String.t,
+        nil | field_unit,
+        String.t
       }
       
       @typedoc "A list of message field descriptions"
@@ -123,13 +127,17 @@ defmodule Mix.Tasks.Mavlink do
       end
       
       defprotocol Message do
-        @doc "Encode a message"
-        @spec encode_msg(Mavlink.message) :: <<>>
-        def encode_msg(message)
+        @doc "Encode a message payload"
+        @spec encode_msg_payload(Mavlink.message) :: <<>>
+        def encode_msg_payload(message)
         
         @doc "Get message id"
         @spec msg_id(Mavlink.message) :: Mavlink.message_id
         def msg_id(message)
+      
+        @doc "Get message extra CRC"
+        @spec msg_extra_crc(Mavlink.message) :: <<_:8>>
+        def msg_extra_crc(message)
         
         @doc "Describe message"
         @spec describe_msg(Mavlink.message) :: String.t
@@ -139,6 +147,9 @@ defmodule Mix.Tasks.Mavlink do
         @spec describe_msg_fields(Mavlink.message) :: Mavlink.field_descrption_list
         def describe_msg_fields(message)
       end
+      
+      
+      # This is an example of a message TODO generate this
       
       defmodule Heartbeat do
         
@@ -156,9 +167,13 @@ defmodule Mix.Tasks.Mavlink do
         
         defimpl Message, for: Heartbeat do
           def msg_id(message), do: 0
-          def encode_msg(message), do: <<>>
+          def msg_extra_crc(message), do: <<123:8>>
           def describe_msg(message), do: "The heartbeat message shows..."
-          def describe_msg_fields(message), do: []
+          def describe_msg_fields(message), do: [
+            {:uint8, 1, :type, :mav_type, nil, "Type of the MAV (quadrotor, helicopter, etc., up to 15 types, defined in MAV_TYPE ENUM)"}
+          
+          ]
+          def encode_msg_payload(message), do: <<>>
         end
         
       end
@@ -239,11 +254,6 @@ defmodule Mix.Tasks.Mavlink do
         ~s/]/
     end
   end
-  
-  defp escaped_heredoc_quotes() do
-    ~s"\0x0" # TODO or @heredocquotes?
-  end
-  
   
   
 end
