@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<mavlink>
+  <version>3</version>
+  <dialect>0</dialect>
+  <enums>
+    <enum name="MAV_AUTOPILOT">
+      <description>Micro air vehicle / autopilot classes. This identifies the individual model.</description>
+      <entry value="0" name="MAV_AUTOPILOT_GENERIC">
+        <description>Generic autopilot, full support for everything</description>
+      </entry>
+    </enum>
+  </enums>
+  <messages>
+    <message id="0" name="HEARTBEAT">
+      <description>The heartbeat message shows that a system is present and responding. The type of the MAV and Autopilot hardware allow the receiving system to treat further messages from this system appropriate (e.g. by laying out the user interface based on the autopilot).</description>
+      <field type="uint8_t" name="type" enum="MAV_TYPE">Type of the MAV (quadrotor, helicopter, etc., up to 15 types, defined in MAV_TYPE ENUM)</field>
+     </message>
+  </messages>
+</mavlink>
