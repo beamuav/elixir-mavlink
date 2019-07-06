@@ -32,7 +32,7 @@ defmodule Mavlink.Test.Parser do
                     %{
                       description: "Type of the MAV (quadrotor, helicopter, etc., up to 15 types, defined in MAV_TYPE ENUM)",
                       display: nil,
-                      enum: :MAV_TYPE,
+                      enum: :mav_type,
                       name: :type,
                       ordinality: 0,
                       type: :uint8,
