@@ -12,7 +12,7 @@ defmodule Mavlink.Test.Tasks do
       @input,
       @output])
     assert File.exists?(@output)
-    assert [
+    pairs = Enum.zip([
       Elixir.Mavlink,
       Elixir.Mavlink.ActuatorControlTarget,
       Elixir.Mavlink.ActuatorOutputStatus,
@@ -191,7 +191,15 @@ defmodule Mavlink.Test.Tasks do
       Elixir.Mavlink.VisionSpeedEstimate,
       Elixir.Mavlink.WheelDistance,
       Elixir.Mavlink.WifiConfigAp,
-      Elixir.Mavlink.WindCov] = Code.compile_file(@output) |> Keyword.keys |> Enum.sort()
+      Elixir.Mavlink.WindCov],
+      Code.compile_file(@output)
+      |> Keyword.keys()
+      |> Enum.sort())
+    
+    for {expected, actual} <- pairs do
+      IO.inspect(expected)
+      assert expected = actual
+    end
   end
   
 end
