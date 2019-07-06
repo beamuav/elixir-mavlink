@@ -5,7 +5,7 @@ defmodule Mix.Tasks.Mavlink do
   import Mavlink.Parser
   import DateTime
   import Enum, only: [count: 1, join: 2, map: 2, filter: 2]
-  import String, only: [trim: 1, replace: 3]
+  import String, only: [trim: 1, replace: 3, split: 2, capitalize: 1]
   
   
   @shortdoc "Generate Mavlink Module from XML"
@@ -15,9 +15,10 @@ defmodule Mix.Tasks.Mavlink do
       {:error, :enoent} ->
         IO.puts("Couldn't open input file '#{input}'.")
         
-      %{version: version, dialect: dialect, enums: enums, messages: _messages} ->
+      %{version: version, dialect: dialect, enums: enums, messages: messages} ->
      
         enum_details = get_enum_details(enums)
+        message_details = get_message_details(messages, enums)
         
         File.write(output,
         """
@@ -66,6 +67,7 @@ defmodule Mix.Tasks.Mavlink do
           
           @typedoc "8-bit unsigned integer"
           @type uint8 :: 0..255
+          @type uint8_mavlink_version :: uint8
           
           
           @typedoc "16-bit unsigned integer"
@@ -78,6 +80,9 @@ defmodule Mix.Tasks.Mavlink do
           
           @typedoc "64-bit unsigned integer"
           @type uint64 :: pos_integer
+          
+          @typedoc "64-bit signed float"
+          @type double :: Float64
           
           
           @typedoc "0 -> not an array 1..255 -> an array"
@@ -143,6 +148,8 @@ defmodule Mix.Tasks.Mavlink do
           #{enum_details |> map(& &1[:decode]) |> join("\n  ") |> trim}
           
         end
+        
+        #{message_details |> join("\n\n") |> trim}
         """
         )
       
@@ -242,6 +249,41 @@ defmodule Mix.Tasks.Mavlink do
         ~s/]/
     end
   end
+  
+  
+  defp get_message_details(messages, enums) do
+    for message <- messages do
+      module_name = message.name |> module_case
+      field_names = message.fields |> map(& ":" <> Atom.to_string(&1.name)) |> join(", ")
+      field_types = message.fields |> map(& Atom.to_string(&1.name) <> ": " <> field_type(&1.type, &1.enum)) |> join(", ")
+      """
+      defmodule Mavlink.#{module_name} do
+        @enforce_keys [#{field_names}]
+        defstruct [#{field_names}]
+        @typedoc "#{escape(message.description)}"
+        @type t :: %Mavlink.#{module_name}{#{field_types}}
+      end
+      """
+    end
+  end
+  
+  
+  defp module_case(name) do
+    name
+    |> Atom.to_string
+    |> split("_")
+    |> map(&capitalize/1)
+    |> join("")
+  end
+  
+  
+  # Have to deal with some overlap between MAVLink and Elixir types
+  defp field_type(_, enum) when enum != nil, do: "Mavlink.#{Atom.to_string(enum)}"
+  defp field_type(:char, _), do: "char"
+  defp field_type(:float, _), do: "Float32"
+  defp field_type(:uint8_t_mavlink_version, _), do: "Mavlink.uint8_mavlink_version" # If they think it's important to distinguish...
+  defp field_type(type, _), do: "Mavlink.#{Atom.to_string(type)}"
+  
   
   
   @spec escape(binary()) :: binary()
