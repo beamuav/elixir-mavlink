@@ -147,6 +147,10 @@ defmodule Mix.Tasks.Mavlink do
           @spec decode(enum_type, integer) :: enum_value
           #{enum_details |> map(& &1[:decode]) |> join("\n  ") |> trim}
           
+          defprotocol Send do
+            def send(message)
+          end
+          
         end
         
         #{message_details |> join("\n\n") |> trim}
@@ -262,6 +266,11 @@ defmodule Mix.Tasks.Mavlink do
         defstruct [#{field_names}]
         @typedoc "#{escape(message.description)}"
         @type t :: %Mavlink.#{module_name}{#{field_types}}
+        defimpl Mavlink.Send do
+          def send(_msg) do
+            IO.puts("Sending a #{module_name} message")
+          end
+        end
       end
       """
     end
