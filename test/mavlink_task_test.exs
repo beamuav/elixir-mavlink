@@ -1,12 +1,21 @@
-defmodule MavlinkTest do
+defmodule Mavlink.Test.Tasks do
   use ExUnit.Case
   import Mix.Tasks.Mavlink
+  
+  @input "#{File.cwd!}/test/input/common.xml"
+  @output "#{File.cwd!}/lib/Mavlink.ex"
  
   test "generate" do
-    root_dir = File.cwd!
-    IO.puts run([
+    #File.rm(@output)
+    run([
       "generate",
-      "#{root_dir}/test/mavlink.xml",
-      "#{root_dir}/test/Mavlink.ex"])
+      @input,
+      @output])
+    assert File.exists?(@output)
+    assert [Mavlink] =
+      Code.compile_file(@output)
+      |> Keyword.keys
+      |> Enum.sort()
   end
+  
 end
