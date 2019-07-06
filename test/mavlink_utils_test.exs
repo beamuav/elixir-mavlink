@@ -1,4 +1,4 @@
-defmodule MavlinkTest do
+defmodule Mavlink.Test.Utils do
   use ExUnit.Case
   import Mavlink.Utils
  
