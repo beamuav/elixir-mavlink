@@ -3,10 +3,10 @@ defmodule Mavlink.Test.Tasks do
   import Mix.Tasks.Mavlink
   
   @input "#{File.cwd!}/test/input/common.xml"
-  @output "#{File.cwd!}/lib/Mavlink.ex"
+  @output "#{File.cwd!}/test/output/Mavlink.ex"
  
   test "generate" do
-    #File.rm(@output)
+    File.rm(@output)
     run([
       "generate",
       @input,
