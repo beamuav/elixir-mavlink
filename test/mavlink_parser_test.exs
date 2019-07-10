@@ -34,7 +34,7 @@ defmodule Mavlink.Test.Parser do
                       display: nil,
                       enum: :mav_type,
                       name: :type,
-                      ordinality: 0,
+                      ordinality: 1,
                       type: :uint8,
                       units: nil
                     }
