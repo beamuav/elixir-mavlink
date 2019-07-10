@@ -4,7 +4,7 @@ defmodule Mix.Tasks.Mavlink do
   
   import Mavlink.Parser
   import DateTime
-  import Enum, only: [count: 1, join: 2, map: 2, filter: 2]
+  import Enum, only: [count: 1, join: 2, map: 2, filter: 2, reduce: 3, reverse: 1]
   import String, only: [trim: 1, replace: 3, split: 2, capitalize: 1]
   
   
@@ -19,6 +19,7 @@ defmodule Mix.Tasks.Mavlink do
      
         enum_details = get_enum_details(enums)
         message_details = get_message_details(messages, enums)
+        unit_details = get_unit_details(messages)
         
         File.write(output,
         """
@@ -46,7 +47,7 @@ defmodule Mix.Tasks.Mavlink do
           
           
           @typedoc "Type used for field in encoded message"
-          @type field_type :: int8 | int16 | int32 | int64 | uint8 | uint16 | uint32 | uint64 | float
+          @type field_type :: int8 | int16 | int32 | int64 | uint8 | uint16 | uint32 | uint64 | char | float | double
           
           
           @typedoc "8-bit signed integer"
@@ -90,7 +91,7 @@ defmodule Mix.Tasks.Mavlink do
           
           
           @typedoc "Measurement unit of field value"
-          @type field_unit :: :pc | :bytes | :bps | :cpc | :cA | :cdeg | :cmps | :deg | :degE7 | :Mibytes | :m | :mm | :ms | :mV | :pix | :s | :us  # TODO generate unique set from fields
+          @type field_unit :: #{unit_details |> join(~s( | )) |> trim}
           
           
           @typedoc "A message field description"
@@ -108,10 +109,6 @@ defmodule Mix.Tasks.Mavlink do
           
           @typedoc "A list of message field descriptions"
           @type field_description_list :: [field_description]
-          
-          
-          @typedoc "A Mavlink message"
-          @type message :: any # Heartbeat.t  # TODO generate
           
           
           @typedoc "A Mavlink message id"
@@ -203,7 +200,7 @@ defmodule Mix.Tasks.Mavlink do
   @type entry_detail :: %{name: String.t, describe: String.t, describe_params: String.t, encode: String.t, decode: String.t}
   @spec get_entry_details(binary(), [%{name: String.t, description: String.t, value: integer | nil, params: [%{}]}]) :: [ entry_detail ]
   defp get_entry_details(enum_name, entries) do
-    {details, _} = Enum.reduce(
+    {details, _} = reduce(
       entries,
       {[], 0},
       fn entry, {details, next_value} ->
@@ -238,7 +235,7 @@ defmodule Mix.Tasks.Mavlink do
 
       end
     )
-    Enum.reverse(details)
+    reverse(details)
   end
   
   
@@ -255,6 +252,7 @@ defmodule Mix.Tasks.Mavlink do
   end
   
   
+  @spec get_message_details([%{}], [enum_detail]) :: [ String.t ]
   defp get_message_details(messages, enums) do
     for message <- messages do
       module_name = message.name |> module_case
@@ -274,6 +272,32 @@ defmodule Mix.Tasks.Mavlink do
       end
       """
     end
+  end
+  
+  
+  @spec get_unit_details([%{}]) :: [ String.t ]
+  defp get_unit_details(messages) do
+    reduce(
+      messages,
+      MapSet.new(),
+      fn message, units ->
+        reduce(
+          message.fields,
+          units,
+          fn %{units: next_unit}, units ->
+            cond do
+              next_unit == nil ->
+                units
+              Regex.match?(~r/^[a-zA-Z0-9@_]+$/, Atom.to_string(next_unit)) ->
+                MapSet.put(units, ~s(:#{next_unit}))
+              true ->
+                MapSet.put(units, ~s(:"#{next_unit}"))
+            end
+            
+          end
+        )
+      end
+    ) |> MapSet.to_list |> Enum.sort
   end
   
   
