@@ -94,23 +94,6 @@ defmodule Mix.Tasks.Mavlink do
           @type field_unit :: #{unit_details |> join(~s( | )) |> trim}
           
           
-          @typedoc "A message field description"
-          @type field_description :: {
-            field_type,
-            field_ordinality,
-            atom,
-            nil | enum_type,
-            nil | :bitmask,
-            nil | String.t,
-            nil | field_unit,
-            String.t
-          }
-          
-          
-          @typedoc "A list of message field descriptions"
-          @type field_description_list :: [field_description]
-          
-          
           @typedoc "A Mavlink message id"
           @type message_id :: pos_integer
           
@@ -146,6 +129,10 @@ defmodule Mix.Tasks.Mavlink do
           
           defprotocol Send do
             def send(message)
+          end
+          
+          defimpl Send, for: [Atom, BitString, Float, Function, Integer, List, Map, PID, Port, Reference, Tuple] do
+            def send(not_a_message), do: {:error, "send(): \#{inspect(not_a_message)} is not a Mavlink message"}
           end
           
         end
@@ -257,7 +244,7 @@ defmodule Mix.Tasks.Mavlink do
     for message <- messages do
       module_name = message.name |> module_case
       field_names = message.fields |> map(& ":" <> Atom.to_string(&1.name)) |> join(", ")
-      field_types = message.fields |> map(& Atom.to_string(&1.name) <> ": " <> field_type(&1.type, &1.enum)) |> join(", ")
+      field_types = message.fields |> map(& Atom.to_string(&1.name) <> ": " <> field_type(&1.type, &1.ordinality, &1.enum)) |> join(", ")
       """
       defmodule Mavlink.#{module_name} do
         @enforce_keys [#{field_names}]
@@ -311,6 +298,8 @@ defmodule Mix.Tasks.Mavlink do
   
   
   # Have to deal with some overlap between MAVLink and Elixir types
+  defp field_type(type, ordinality, enum) when ordinality == 1, do: field_type(type, enum)
+  defp field_type(type, ordinality, enum) when ordinality > 1, do: "[ #{field_type(type, enum)} ]"
   defp field_type(_, enum) when enum != nil, do: "Mavlink.#{Atom.to_string(enum)}"
   defp field_type(:char, _), do: "char"
   defp field_type(:float, _), do: "Float32"
