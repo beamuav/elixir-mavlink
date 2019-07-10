@@ -60,7 +60,7 @@ defmodule Mavlink.Parser do
   defrecord :xmlAttribute, extract(:xmlAttribute, from_lib: @xmerl_header)
   defrecord :xmlText, extract(:xmlText, from_lib: @xmerl_header)
   
-  @spec parse_mavlink_xml(String.t) :: %{version: integer, dialect: integer, enums: [], messages: []} | {:error, :enoent}
+  @spec parse_mavlink_xml(String.t) :: %{version: integer, dialect: integer, enums: [ enum_description ], messages: [ message_description ]} | {:error, :enoent}
   def parse_mavlink_xml(path) do
     case :xmerl_scan.file(path) do
       {defs, []} ->
@@ -76,6 +76,13 @@ defmodule Mavlink.Parser do
   end
   
   
+  @type enum_description :: %{
+    name:         atom,
+    description:  String.t,
+    entries:      [ entry_description ]
+  }
+  
+  @spec parse_enum(tuple) :: enum_description
   defp parse_enum(element) do
     %{
       name:         :xmerl_xpath.string('@name', element) |> extract_text |> downcase |> to_atom,
@@ -85,6 +92,14 @@ defmodule Mavlink.Parser do
   end
   
   
+  @type entry_description :: %{
+    value:        integer | nil,
+    name:         atom,
+    description:  String.t,
+    params:       [ param_description ]
+  }
+  
+  @spec parse_entry(tuple) :: entry_description
   defp parse_entry(element) do
     value_attr = :xmerl_xpath.string('@value', element) # Apparently optional in common.xml?
     %{
@@ -96,6 +111,12 @@ defmodule Mavlink.Parser do
   end
   
   
+  @type param_description :: %{
+    index:        integer,
+    description:  String.t
+  }
+  
+  @spec parse_param(tuple) :: param_description
   defp parse_param(element) do
     %{
       index:        :xmerl_xpath.string('@index', element) |> extract_text |> to_integer,
@@ -104,6 +125,14 @@ defmodule Mavlink.Parser do
   end
   
   
+  @type message_description :: %{
+    id:           integer,
+    name:         atom,
+    description:  String.t,
+    fields:       [ field_description ]
+  }
+  
+  @spec parse_message(tuple) :: message_description
   defp parse_message(element) do
     %{
       id:           :xmerl_xpath.string('@id', element) |> extract_text |> to_integer,
@@ -114,6 +143,18 @@ defmodule Mavlink.Parser do
   end
   
   
+  @type field_description :: %{
+    type:         atom,
+    ordinality:   pos_integer,
+    name:         atom,
+    enum:         nil | atom,
+    display:      nil | :bitmask,
+    print_format: nil | String.t,
+    units:        nil | atom,
+    description:  String.t
+  }
+  
+  @spec parse_field(tuple) :: field_description
   defp parse_field(element) do
     {type, ordinality} =
       :xmerl_xpath.string('@type', element)
@@ -126,12 +167,14 @@ defmodule Mavlink.Parser do
       name:         :xmerl_xpath.string('@name', element) |> extract_text |> to_atom,
       enum:         :xmerl_xpath.string('@enum', element) |> extract_text |> nil_to_empty_string |> downcase |> to_atom_or_nil,
       display:      :xmerl_xpath.string('@display', element) |> extract_text |> to_atom_or_nil,
+      print_format: :xmerl_xpath.string('@print_format', element) |> extract_text,
       units:        :xmerl_xpath.string('@units', element) |> extract_text |> to_atom_or_nil,
       description:  :xmerl_xpath.string('/field/text()', element) |> extract_text
     }
   end
   
   
+  @spec parse_type_ordinality(String.t) :: {atom, integer}
   defp parse_type_ordinality(type_string) do
     [type | ordinality] = type_string
       |> split(["[", "]"], trim: true)
@@ -140,7 +183,7 @@ defmodule Mavlink.Parser do
       type |> trim_trailing("_t") |> to_atom,
       cond do
         ordinality |> empty? ->
-          0
+          1
         true ->
           ordinality |> first |> to_integer
       end
@@ -148,20 +191,27 @@ defmodule Mavlink.Parser do
   end
   
   
+  # Can't spec this without causing nil can't match binary - Erlang types?
   defp extract_text([xmlText(value: value)]), do: clean_string(value)
   defp extract_text([xmlAttribute(value: value)]), do: clean_string(value)
   defp extract_text(_), do: nil
   
+  
+  @spec clean_string([ char ] | binary) :: String.t
   defp clean_string(s) do
     trimmed = s |> List.to_string |> String.trim
     replace(~r/\s+/, trimmed, " ")
   end
   
-  defp nil_to_empty_string(nil), do: ""
-  defp nil_to_empty_string(value), do: value
   
+  @spec nil_to_empty_string(String.t | nil) :: String.t
+  defp nil_to_empty_string(nil), do: ""
+  defp nil_to_empty_string(value) when is_binary(value), do: value
+  
+  
+  @spec to_atom_or_nil(String.t | nil) :: atom | nil
   defp to_atom_or_nil(nil), do: nil
   defp to_atom_or_nil(""), do: nil
-  defp to_atom_or_nil(value), do: to_atom(value)
+  defp to_atom_or_nil(value) when is_binary(value), do: to_atom(value)
   
 end
