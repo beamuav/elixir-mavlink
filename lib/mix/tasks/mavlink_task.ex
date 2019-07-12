@@ -6,6 +6,7 @@ defmodule Mix.Tasks.Mavlink do
   import DateTime
   import Enum, only: [count: 1, join: 2, map: 2, filter: 2, reduce: 3, reverse: 1]
   import String, only: [trim: 1, replace: 3, split: 2, capitalize: 1]
+  import Mavlink.Utils
   
   
   @shortdoc "Generate Mavlink Module from XML"
@@ -245,8 +246,10 @@ defmodule Mix.Tasks.Mavlink do
       module_name = message.name |> module_case
       field_names = message.fields |> map(& ":" <> Atom.to_string(&1.name)) |> join(", ")
       field_types = message.fields |> map(& Atom.to_string(&1.name) <> ": " <> field_type(&1.type, &1.ordinality, &1.enum)) |> join(", ")
+      wire_order = message.fields |> wire_order
       """
       defmodule Mavlink.#{module_name} do
+        # wire order #{wire_order |> map(& "#{Atom.to_string(&1.name)}::#{&1.type}") |> join(", ")}
         @enforce_keys [#{field_names}]
         defstruct [#{field_names}]
         @typedoc "#{escape(message.description)}"
