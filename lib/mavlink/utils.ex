@@ -29,10 +29,11 @@ defmodule Mavlink.Utils do
       uint16: 3,
       int16:  3,
       uint8:  4,
+      uint8_t_mavlink_version: 4,
       int8:   4
     }
     
-    sort_by(fields, &Map.fetch(type_order_map, &1))
+    sort_by(fields, &Map.fetch(type_order_map, &1.type))
     
   end
   
@@ -40,6 +41,13 @@ defmodule Mavlink.Utils do
   @doc """
   Calculate an x25 checksum of a list or binary
   """
+  
+  
+  def eight_bit_checksum(value) do
+    (value &&& 0xFF) ^^^ (value >>> 8)
+  end
+  
+  
   @spec x25_crc([ ] | binary()) :: pos_integer
   def x25_crc(list) when is_list(list) do
     x25_crc(0xffff, flatten(list))
@@ -61,10 +69,11 @@ defmodule Mavlink.Utils do
     crc |> x25_accumulate(head) |> x25_crc(tail)
   end
   
+  
   defp x25_accumulate(crc, value) do
     tmp = value ^^^ (crc &&& 0xff)
     tmp = (tmp ^^^ (tmp <<< 4)) &&& 0xff
-    crc = (crc >>> 8) ^^^ (crc <<< 8) ^^^ (tmp <<< 3) ^^^ (tmp >>> 4)
+    crc = (crc >>> 8) ^^^ (tmp <<< 8) ^^^ (tmp <<< 3) ^^^ (tmp >>> 4)
     crc &&& 0xffff
   end
   
