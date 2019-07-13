@@ -53,7 +53,7 @@ defmodule Mavlink.Parser do
   import List, only: [first: 1]
   import Record, only: [defrecord: 2, extract: 2]
   import Regex, only: [replace: 3]
-  import String, only: [to_integer: 1, downcase: 1, to_atom: 1, split: 3, trim_trailing: 2]
+  import String, only: [to_integer: 1, downcase: 1, to_atom: 1, split: 3]
 
   
   @xmerl_header "xmerl/include/xmerl.hrl"
@@ -64,11 +64,12 @@ defmodule Mavlink.Parser do
   def parse_mavlink_xml(path) do
     case :xmerl_scan.file(path) do
       {defs, []} ->
+        version = :xmerl_xpath.string('/mavlink/version/text()', defs) |> extract_text |> to_integer
         %{
-          version:  :xmerl_xpath.string('/mavlink/version/text()', defs) |> extract_text |> to_integer,
+          version:  version,
           dialect:  :xmerl_xpath.string('/mavlink/dialect/text()', defs) |> extract_text |> to_integer,
           enums:    (for enum <- :xmerl_xpath.string('/mavlink/enums/enum', defs), do: parse_enum(enum)),
-          messages: (for msg <- :xmerl_xpath.string('/mavlink/messages/message', defs), do: parse_message(msg))
+          messages: (for msg <- :xmerl_xpath.string('/mavlink/messages/message', defs), do: parse_message(msg, version))
         }
       {:error, :enoent} ->
         {:error, :enoent}
@@ -132,13 +133,13 @@ defmodule Mavlink.Parser do
     fields:       [ field_description ]
   }
   
-  @spec parse_message(tuple) :: message_description
-  defp parse_message(element) do
+  @spec parse_message(tuple, integer) :: message_description
+  defp parse_message(element, version) do
     %{
       id:           :xmerl_xpath.string('@id', element) |> extract_text |> to_integer,
       name:         :xmerl_xpath.string('@name', element) |> extract_text |> downcase |> to_atom,
       description:  :xmerl_xpath.string('/message/description/text()', element) |> extract_text,
-      fields:       (for field <- :xmerl_xpath.string('/message/field', element), do: parse_field(field))
+      fields:       (for field <- :xmerl_xpath.string('/message/field', element), do: parse_field(field, version))
     }
   end
   
@@ -146,6 +147,8 @@ defmodule Mavlink.Parser do
   @type field_description :: %{
     type:         atom,
     ordinality:   pos_integer,
+    omit_arg:     boolean,
+    constant_val: any,
     name:         atom,
     enum:         nil | atom,
     display:      nil | :bitmask,
@@ -154,16 +157,18 @@ defmodule Mavlink.Parser do
     description:  String.t
   }
   
-  @spec parse_field(tuple) :: field_description
-  defp parse_field(element) do
-    {type, ordinality} =
+  @spec parse_field(tuple, integer) :: field_description
+  defp parse_field(element, version) do
+    {type, ordinality, omit_arg, constant_val} =
       :xmerl_xpath.string('@type', element)
       |> extract_text
-      |> parse_type_ordinality
+      |> parse_type_ordinality_omit_arg_constant_val(version)
 
     %{
       type:         type,
       ordinality:   ordinality,
+      omit_arg:     omit_arg,
+      constant_val: constant_val,
       name:         :xmerl_xpath.string('@name', element) |> extract_text |> to_atom,
       enum:         :xmerl_xpath.string('@enum', element) |> extract_text |> nil_to_empty_string |> downcase |> to_atom_or_nil,
       display:      :xmerl_xpath.string('@display', element) |> extract_text |> to_atom_or_nil,
@@ -174,24 +179,31 @@ defmodule Mavlink.Parser do
   end
   
   
-  @spec parse_type_ordinality(String.t) :: {atom, integer}
-  defp parse_type_ordinality(type_string) do
+  @spec parse_type_ordinality_omit_arg_constant_val(String.t, integer) :: {atom, integer, boolean, any}
+  defp parse_type_ordinality_omit_arg_constant_val(type_string, version) do
     [type | ordinality] = type_string
       |> split(["[", "]"], trim: true)
-      
-    {
-      type |> trim_trailing("_t") |> to_atom,
-      cond do
-        ordinality |> empty? ->
-          1
-        true ->
-          ordinality |> first |> to_integer
-      end
-    }
+
+    case type do
+      "uint8_t_mavlink_version" ->
+        {:uint8_t, 1, true, version}
+      _ ->
+        {
+          type |> to_atom,
+          cond do
+            ordinality |> empty? ->
+              1
+            true ->
+              ordinality |> first |> to_integer
+          end,
+          false,
+          nil
+        }
+    end
   end
   
   
-  # Can't spec this without causing nil can't match binary - Erlang types?
+  # Can't spec this without causing dialyzer "nil can't match binary" - Erlang types?
   defp extract_text([xmlText(value: value)]), do: clean_string(value)
   defp extract_text([xmlAttribute(value: value)]), do: clean_string(value)
   defp extract_text(_), do: nil
