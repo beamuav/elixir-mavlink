@@ -3,7 +3,7 @@ defmodule Mavlink.Parser do
   Parse a mavlink xml file into an idiomatic Elixir representation:
   
   %{
-      version: 0,
+      version: 2,
       dialect: 0,
       enums: [
         %{
@@ -30,13 +30,13 @@ defmodule Mavlink.Parser do
       messages: [
         %{
           id: 0,
-          name: :optical_flow,
+          name: "optical_flow",
           description: "Optical flow...",
           fields: [
             %{
-                type: :uint16,
-                ordinality: 0,
-                name: :flow_x,
+                type: "uint16_t",
+                ordinality: 1,
+                name: "flow_x",
                 units: "dpixels",                   (note: string not atom)
                 description: "Flow in pixels..."
              },
@@ -128,7 +128,7 @@ defmodule Mavlink.Parser do
   
   @type message_description :: %{
     id:           integer,
-    name:         atom,
+    name:         String.t,
     description:  String.t,
     fields:       [ field_description ]
   }
@@ -137,7 +137,7 @@ defmodule Mavlink.Parser do
   defp parse_message(element, version) do
     %{
       id:           :xmerl_xpath.string('@id', element) |> extract_text |> to_integer,
-      name:         :xmerl_xpath.string('@name', element) |> extract_text |> downcase |> to_atom,
+      name:         :xmerl_xpath.string('@name', element) |> extract_text,
       description:  :xmerl_xpath.string('/message/description/text()', element) |> extract_text,
       fields:       (for field <- :xmerl_xpath.string('/message/field', element), do: parse_field(field, version))
     }
@@ -145,11 +145,11 @@ defmodule Mavlink.Parser do
   
   
   @type field_description :: %{
-    type:         atom,
+    type:         String.t,
     ordinality:   pos_integer,
     omit_arg:     boolean,
     constant_val: any,
-    name:         atom,
+    name:         String.t,
     enum:         nil | atom,
     display:      nil | :bitmask,
     print_format: nil | String.t,
@@ -169,7 +169,7 @@ defmodule Mavlink.Parser do
       ordinality:   ordinality,
       omit_arg:     omit_arg,
       constant_val: constant_val,
-      name:         :xmerl_xpath.string('@name', element) |> extract_text |> to_atom,
+      name:         :xmerl_xpath.string('@name', element) |> extract_text |> downcase,
       enum:         :xmerl_xpath.string('@enum', element) |> extract_text |> nil_to_empty_string |> downcase |> to_atom_or_nil,
       display:      :xmerl_xpath.string('@display', element) |> extract_text |> to_atom_or_nil,
       print_format: :xmerl_xpath.string('@print_format', element) |> extract_text,
@@ -186,10 +186,10 @@ defmodule Mavlink.Parser do
 
     case type do
       "uint8_t_mavlink_version" ->
-        {:uint8_t, 1, true, version}
+        {"uint8_t", 1, true, version}
       _ ->
         {
-          type |> to_atom,
+          type,
           cond do
             ordinality |> empty? ->
               1
