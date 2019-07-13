@@ -33,14 +33,14 @@ defmodule Mavlink.Test.Parser do
                       description: "Type of the MAV (quadrotor, helicopter, etc., up to 15 types, defined in MAV_TYPE ENUM)",
                       display: nil,
                       enum: :mav_type,
-                      name: :type,
+                      name: "type",
                       ordinality: 1,
-                      type: :uint8_t,
+                      type: "uint8_t",
                       units: nil
                     }
                   ],
                   id: 0,
-                  name: :heartbeat
+                  name: "HEARTBEAT"
                 }
               ],
               version: 3
