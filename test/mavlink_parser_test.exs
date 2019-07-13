@@ -35,7 +35,7 @@ defmodule Mavlink.Test.Parser do
                       enum: :mav_type,
                       name: :type,
                       ordinality: 1,
-                      type: :uint8,
+                      type: :uint8_t,
                       units: nil
                     }
                   ],
