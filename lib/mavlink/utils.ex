@@ -20,20 +20,20 @@ defmodule Mavlink.Utils do
   @spec wire_order([ ]) :: [ ]
   def wire_order(fields) do
     type_order_map = %{
-      uint64: 1,
-      int64:  1,
-      double: 1,
-      uint32: 2,
-      int32:  2,
-      float:  2,
-      uint16: 3,
-      int16:  3,
-      uint8:  4,
-      uint8_t_mavlink_version: 4,
-      int8:   4
+      uint64_t:                 1,
+      int64_t:                  1,
+      double:                   1,
+      uint32_t:                 2,
+      int32_t:                  2,
+      float:                    2,
+      uint16_t:                 3,
+      int16_t:                  3,
+      uint8_t:                  4,
+      uint8_t_mavlink_version:  4,
+      int8_t:                   4
     }
     
-    sort_by(fields, &Map.fetch(type_order_map, &1.type))
+    sort_by(fields, &Map.fetch(type_order_map, String.to_atom(&1.type)))
     
   end
   
