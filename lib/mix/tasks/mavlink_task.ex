@@ -18,9 +18,9 @@ defmodule Mix.Tasks.Mavlink do
         
       %{version: version, dialect: dialect, enums: enums, messages: messages} ->
      
-        enum_details = get_enum_details(enums)
-        message_details = get_message_details(messages, enums)
-        unit_details = get_unit_details(messages)
+        enum_code_fragments = get_enum_code_fragments(enums)
+        message_code_fragments = get_message_code_fragments(messages, enums)
+        unit_code_fragments = get_unit_code_fragments(messages)
         
         File.write(output,
         """
@@ -36,11 +36,11 @@ defmodule Mix.Tasks.Mavlink do
           @type enum_value :: #{map(enums, & "#{&1[:name]}") |> join(" | ")}
           
           
-          #{enum_details |> map(& &1[:type]) |> join("\n\n  ")}
+          #{enum_code_fragments |> map(& &1[:type]) |> join("\n\n  ")}
           
           
           @typedoc "A parameter description"
-          @type param_description :: {non_neg_integer, String.t}
+          @type param_description :: {pos_integer, String.t}
           
           
           @typedoc "A list of parameter descriptions"
@@ -48,51 +48,50 @@ defmodule Mix.Tasks.Mavlink do
           
           
           @typedoc "Type used for field in encoded message"
-          @type field_type :: int8 | int16 | int32 | int64 | uint8 | uint16 | uint32 | uint64 | char | float | double
+          @type field_type :: int8_t | int16_t | int32_t | int64_t | uint8_t | uint16_t | uint32_t | uint64_t | char | float | double
           
           
           @typedoc "8-bit signed integer"
-          @type int8 :: -128..127
+          @type int8_t :: -128..127
           
           
           @typedoc "16-bit signed integer"
-          @type int16 :: -32_768..32_767
+          @type int16_t :: -32_768..32_767
           
           
           @typedoc "32-bit signed integer"
-          @type int32 :: -2_147_483_647..2_147_483_647
+          @type int32_t :: -2_147_483_647..2_147_483_647
           
           
           @typedoc "64-bit signed integer"
-          @type int64 :: integer
+          @type int64_t :: integer
           
           
           @typedoc "8-bit unsigned integer"
-          @type uint8 :: 0..255
-          @type uint8_mavlink_version :: uint8
+          @type uint8_t :: 0..255
           
           
           @typedoc "16-bit unsigned integer"
-          @type uint16 :: 0..65_535
+          @type uint16_t :: 0..65_535
           
           
           @typedoc "32-bit unsigned integer"
-          @type uint32 :: 0..4_294_967_295
+          @type uint32_t :: 0..4_294_967_295
           
           
           @typedoc "64-bit unsigned integer"
-          @type uint64 :: pos_integer
+          @type uint64_t :: pos_integer
           
           @typedoc "64-bit signed float"
           @type double :: Float64
           
           
-          @typedoc "0 -> not an array 1..255 -> an array"
-          @type field_ordinality :: 0..255
+          @typedoc "1 -> not an array 2..255 -> an array"
+          @type field_ordinality :: 1..255
           
           
           @typedoc "Measurement unit of field value"
-          @type field_unit :: #{unit_details |> join(~s( | )) |> trim}
+          @type field_unit :: #{unit_code_fragments |> join(~s( | )) |> trim}
           
           
           @typedoc "A Mavlink message id"
@@ -111,22 +110,22 @@ defmodule Mix.Tasks.Mavlink do
           
           @doc "Return a String description of a Mavlink enumeration"
           @spec describe(enum_type | enum_value) :: String.t
-          #{enum_details |> map(& &1[:describe]) |> join("\n  ") |> trim}
+          #{enum_code_fragments |> map(& &1[:describe]) |> join("\n  ") |> trim}
           
           
           @doc "Return keyword list of mav_cmd parameters"
           @spec describe_params(mav_cmd) :: param_description_list
-          #{enum_details |> map(& &1[:describe_params]) |> join("\n  ") |> trim}
+          #{enum_code_fragments |> map(& &1[:describe_params]) |> join("\n  ") |> trim}
           
           
           @doc "Return encoded integer value used in a Mavlink message for an enumeration value"
           @spec encode(enum_value) :: integer
-          #{enum_details |> map(& &1[:encode]) |> join("\n  ") |> trim}
+          #{enum_code_fragments |> map(& &1[:encode]) |> join("\n  ") |> trim}
           
           
           @doc "Return the atom representation of a Mavlink enumeration value from the enumeration type and encoded integer"
           @spec decode(enum_type, integer) :: enum_value
-          #{enum_details |> map(& &1[:decode]) |> join("\n  ") |> trim}
+          #{enum_code_fragments |> map(& &1[:decode]) |> join("\n  ") |> trim}
           
           defprotocol Send do
             def send(message)
@@ -138,7 +137,7 @@ defmodule Mix.Tasks.Mavlink do
           
         end
         
-        #{message_details |> join("\n\n") |> trim}
+        #{message_code_fragments |> join("\n\n") |> trim}
         """
         )
       
@@ -151,8 +150,8 @@ defmodule Mix.Tasks.Mavlink do
   
   
   @type enum_detail :: %{type: String.t, describe: String.t, describe_params: String.t, encode: String.t, decode: String.t}
-  @spec get_enum_details([%{name: String.t, description: String.t, entries: [%{}]}]) :: [ enum_detail ]
-  defp get_enum_details(enums) do
+  @spec get_enum_code_fragments([Mavlink.Parser.enum_description]) :: [ enum_detail ]
+  defp get_enum_code_fragments(enums) do
     for enum <- enums do
       %{
         name: name,
@@ -160,25 +159,25 @@ defmodule Mix.Tasks.Mavlink do
         entries: entries
       } = enum
       
-      entry_details = get_entry_details(name, entries)
+      entry_code_fragments = get_entry_code_fragments(name, entries)
       
       %{
         type: ~s/@typedoc "#{description}"\n  / <>
           ~s/@type #{name} :: / <>
-          (map(entry_details, & ":#{&1[:name]}") |> join(" | ")),
+          (map(entry_code_fragments, & ":#{&1[:name]}") |> join(" | ")),
           
         describe: ~s/def describe(:#{name}), do: "#{escape(description)}"\n  / <>
-          (map(entry_details, & &1[:describe])
+          (map(entry_code_fragments, & &1[:describe])
           |> join("\n  ")),
           
-        describe_params: filter(entry_details, & &1 != nil)
+        describe_params: filter(entry_code_fragments, & &1 != nil)
           |> map(& &1[:describe_params])
           |> join("\n  "),
           
-        encode: map(entry_details, & &1[:encode])
+        encode: map(entry_code_fragments, & &1[:encode])
           |> join("\n  "),
         
-        decode: map(entry_details, & &1[:decode])
+        decode: map(entry_code_fragments, & &1[:decode])
           |> join("\n  ")
       }
     end
@@ -186,8 +185,8 @@ defmodule Mix.Tasks.Mavlink do
   
   
   @type entry_detail :: %{name: String.t, describe: String.t, describe_params: String.t, encode: String.t, decode: String.t}
-  @spec get_entry_details(binary(), [%{name: String.t, description: String.t, value: integer | nil, params: [%{}]}]) :: [ entry_detail ]
-  defp get_entry_details(enum_name, entries) do
+  @spec get_entry_code_fragments(String.t, [Mavlink.Parser.entry_description]) :: [ entry_detail ]
+  defp get_entry_code_fragments(enum_name, entries) do
     {details, _} = reduce(
       entries,
       {[], 0},
@@ -212,7 +211,7 @@ defmodule Mix.Tasks.Mavlink do
             %{
               name: entry_name,
               describe: ~s/def describe(:#{entry_name}), do: "#{escape(entry_description)}"/,
-              describe_params: get_param_details(entry_name, entry_params),
+              describe_params: get_param_code_fragments(entry_name, entry_params),
               encode: ~s/def encode(:#{entry_name}), do: #{entry_value_string}/,
               decode: ~s/def decode(:#{enum_name}, #{entry_value_string}), do: :#{entry_name}/
             }
@@ -227,8 +226,8 @@ defmodule Mix.Tasks.Mavlink do
   end
   
   
-  @spec get_param_details(String.t, [%{index: non_neg_integer, description: String.t}]) :: String.t
-  defp get_param_details(entry_name, entry_params) do
+  @spec get_param_code_fragments(String.t, [Mavlink.Parser.param_description]) :: String.t
+  defp get_param_code_fragments(entry_name, entry_params) do
     cond do
       count(entry_params) == 0 ->
         nil
@@ -240,8 +239,8 @@ defmodule Mix.Tasks.Mavlink do
   end
   
   
-  @spec get_message_details([%{}], [enum_detail]) :: [ String.t ]
-  defp get_message_details(messages, enums) do
+  @spec get_message_code_fragments([Mavlink.Parser.message_description], [enum_detail]) :: [ String.t ]
+  defp get_message_code_fragments(messages, _enums) do
     for message <- messages do
       module_name = message.name |> module_case
       field_names = message.fields |> map(& ":" <> Atom.to_string(&1.name)) |> join(", ")
@@ -265,8 +264,14 @@ defmodule Mix.Tasks.Mavlink do
   end
   
   
-  @spec get_unit_details([%{}]) :: [ String.t ]
-  defp get_unit_details(messages) do
+  @spec calculate_message_crc_extra(Mavlink.Parser.message_description) :: 0..255
+  defp calculate_message_crc_extra(message) do
+  
+  end
+  
+  
+  @spec get_unit_code_fragments([Mavlink.Parser.message_description]) :: [ String.t ]
+  defp get_unit_code_fragments(messages) do
     reduce(
       messages,
       MapSet.new(),
