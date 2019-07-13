@@ -179,7 +179,7 @@ defmodule Mavlink.Parser do
   end
   
   
-  @spec parse_type_ordinality_omit_arg_constant_val(String.t, integer) :: {atom, integer, boolean, any}
+  @spec parse_type_ordinality_omit_arg_constant_val(String.t, integer) :: {String.t, integer, boolean, any}
   defp parse_type_ordinality_omit_arg_constant_val(type_string, version) do
     [type | ordinality] = type_string
       |> split(["[", "]"], trim: true)
