@@ -39,7 +39,8 @@ defmodule Mavlink.Utils do
   
   
   @doc """
-  Calculate an x25 checksum of a list or binary
+  Calculate an x25 checksum of a list or binary based on
+  pymavlink mavcrc.x25crc
   """
   
   
