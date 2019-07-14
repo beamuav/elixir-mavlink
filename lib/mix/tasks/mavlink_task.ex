@@ -317,7 +317,7 @@ defmodule Mix.Tasks.Mavlink do
   @spec calculate_message_crc_extra(Mavlink.Parser.message_description) :: 0..255
   defp calculate_message_crc_extra(message) do
     reduce(
-      message.fields |> wire_order,
+      message.fields |> wire_order |> filter(& !&1.is_extension),
       x25_crc(message.name <> " "),
       fn(field, crc) ->
         case field.ordinality do
