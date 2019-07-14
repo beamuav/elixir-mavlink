@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<mavlink>
+  <version>2</version>
+  <dialect>0</dialect>
+  <enums/>
+  <messages>
+    <message id="100" name="OPTICAL_FLOW">
+      <description>Optical flow from a flow sensor (e.g. optical mouse sensor)</description>
+      <field type="uint8_t" name="quality">Optical flow quality / confidence. 0: bad, 255: maximum quality</field>
+      <field type="float" name="ground_distance" units="m">Ground distance in meters. Positive value: distance known. Negative value: Unknown distance</field>
+      <extensions/>
+      <field type="float" name="flow_rate_x" units="rad/s">Flow rate in radians/second about X axis</field>
+      <field type="float" name="flow_rate_y" units="rad/s">Flow rate in radians/second about Y axis</field>
+    </message>
+  </messages>
+</mavlink>
