@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<mavlink>
+  <include>mini_mavlink_included.xml</include>
+  <version>3</version>
+  <dialect>0</dialect>
+  <enums>
+    <enum name="MAV_AUTOPILOT">
+      <description>Micro air vehicle / autopilot classes.</description>
+      <entry value="0" name="MAV_AUTOPILOT_GENERIC">
+        <description>Generic autopilot, full support for everything</description>
+      </entry>
+    </enum>
+  </enums>
+  <messages>
+    <message id="0" name="HEARTBEAT">
+      <description>The heartbeat message shows that a system is present and responding.</description>
+      <field type="uint8_t" name="type" enum="MAV_TYPE">Type of the MAV</field>
+     </message>
+  </messages>
+</mavlink>
