@@ -5,7 +5,7 @@ defmodule Mix.Tasks.Mavlink do
   import Mavlink.Parser
   import DateTime
   import Enum, only: [count: 1, join: 2, map: 2, filter: 2, reduce: 3, reverse: 1]
-  import String, only: [trim: 1, replace: 3, split: 2, capitalize: 1]
+  import String, only: [trim: 1, replace: 3, split: 2, capitalize: 1, downcase: 1]
   import Mavlink.Utils
   
   
@@ -272,13 +272,13 @@ defmodule Mix.Tasks.Mavlink do
   defp get_message_code_fragments(messages, _enums) do
     for message <- messages do
       module_name = message.name |> module_case
-      field_names = message.fields |> map(& ":" <> &1.name) |> join(", ")
-      field_types = message.fields |> map(& &1.name <> ": " <> field_type(&1.type, &1.ordinality, &1.enum)) |> join(", ")
+      field_names = message.fields |> map(& ":" <> downcase(&1.name)) |> join(", ")
+      field_types = message.fields |> map(& downcase(&1.name) <> ": " <> field_type(&1.type, &1.ordinality, &1.enum)) |> join(", ")
       wire_order = message.fields |> wire_order
       
       # Have to append "_f" to stop clash with reserved elixir words like "end"
-      unpack_binary_pattern = wire_order |> map(& &1.name <> "_f::" <> type_to_binary(&1.type, &1.ordinality).pattern) |> join(",")
-      unpack_struct_fields = message.fields |> map(& &1.name <> ": " <> unpack_field_code_fragment(&1)) |> join(", ")
+      unpack_binary_pattern = wire_order |> map(& downcase(&1.name) <> "_f::" <> type_to_binary(&1.type, &1.ordinality).pattern) |> join(",")
+      unpack_struct_fields = message.fields |> map(& downcase(&1.name) <> ": " <> unpack_field_code_fragment(&1)) |> join(", ")
       crc_extra = message |> calculate_message_crc_extra
       expected_payload_size = reduce(message.fields, 0, fn(field, sum) -> sum + type_to_binary(field.type, field.ordinality).size end) # Without Mavlink 2 trailing 0 truncation
       %{
@@ -334,19 +334,19 @@ defmodule Mix.Tasks.Mavlink do
   # TODO Decode Bit Fields?
   
   def unpack_field_code_fragment(%{name: name, ordinality: 1, enum: nil}) do
-    name <> "_f"
+    downcase(name) <> "_f"
   end
   
   def unpack_field_code_fragment(%{name: name, ordinality: 1, enum: enum}) do
-    "decode(:#{Atom.to_string(enum)}, #{name}_f)" # TODO enums parse as string
+    "decode(:#{Atom.to_string(enum)}, #{downcase(name)}_f)" # TODO enums parse as string
   end
   
   def unpack_field_code_fragment(%{name: name, type: "char"}) do
-    name <> "_f"
+    downcase(name) <> "_f"
   end
   
   def unpack_field_code_fragment(%{name: name, type: type}) do
-    "#{name}_f |> unpack_array(fn(<<elem::#{type_to_binary(type, 1).pattern},rest::binary>>) ->  {elem, rest} end)"
+    "#{downcase(name)}_f |> unpack_array(fn(<<elem::#{type_to_binary(type, 1).pattern},rest::binary>>) ->  {elem, rest} end)"
   end
   
   
