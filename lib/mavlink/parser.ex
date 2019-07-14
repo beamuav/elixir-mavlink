@@ -91,9 +91,9 @@ defmodule Mavlink.Parser do
     combine_definitions([
       %{
         version:  max(v1, v2), # strings > nil
-        dialect:  max(v1, v2),
+        dialect:  max(d1, d2),
         enums:    merge_enums(e1, e2),
-        messages: sort_by(m2 ++ m1, & &1.id)
+        messages: sort_by(m1 ++ m2, & &1.id)
        } | more_definitions])
   end
   
@@ -103,10 +103,11 @@ defmodule Mavlink.Parser do
     b_index = into(bs, %{}, fn (enum) -> {enum.name, enum} end)
     only_in_a = for name <- filter(Map.keys(a_index), & !Map.has_key?(b_index, &1)), do: a_index[name]
     only_in_b = for name <- filter(Map.keys(a_index), & !Map.has_key?(a_index, &1)), do: b_index[name]
+    
     in_a_and_b = for name <- filter(Map.keys(a_index), & Map.has_key?(b_index, &1)) do
       %{a_index[name] | entries:  sort_by(a_index[name].entries ++ b_index[name].entries, & &1.value)}
     end
-    IO.inspect in_a_and_b
+    
     sort_by(only_in_a ++ in_a_and_b ++ only_in_b, & &1.name)
   end
   
