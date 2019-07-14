@@ -61,7 +61,7 @@ defmodule Listen do
                       IO.puts("...COULDN'T UNPACK message id #{message_id}: #{inspect(raw)}")
                   end
                 _ ->
-                  IO.puts("#{sequence_number}: FAILED CHECKSUM message id #{message_id}: #{inspect(raw)}")
+                  IO.puts("#{sequence_number}: FAILED CHECKSUM message id #{message_id}\npayload expected/actual length #{expected_length}/#{payload_length} crc #{crc}:\n#{inspect(raw)}")
               end
               
             {:error, _} ->
