@@ -7,13 +7,13 @@ defmodule Mavlink.Test.Parser do
 
   
   test "parse mavlink XML no such file" do
-    assert {:error, :enoent} = parse_mavlink_xml("snark")
+    assert {:error, "File 'snark' does not exist"} = parse_mavlink_xml("snark")
   end
   
   
   test "parse mini mavlink XML" do
     assert %{
-              dialect: 0,
+              dialect: "0",
               enums: [
                 %{
                   description: "Micro air vehicle / autopilot classes. This identifies the individual model.",
@@ -46,14 +46,14 @@ defmodule Mavlink.Test.Parser do
                   name: "HEARTBEAT"
                 }
               ],
-              version: 3
+              version: "3"
             } = parse_mavlink_xml("#{@root_dir}/test/input/mini_mavlink.xml")
   end
   
   
   test "extension fields identified" do
     assert  %{
-              dialect: 0,
+              dialect: "0",
               enums: [],
               messages: [
                 %{
@@ -116,8 +116,80 @@ defmodule Mavlink.Test.Parser do
                   name: "OPTICAL_FLOW"
                 }
               ],
-              version: 2
+              version: "2"
             } =  parse_mavlink_xml("#{@root_dir}/test/input/extensions.xml")
+  end
+  
+  
+  test "parse mini mavlink with include" do
+    assert %{
+      dialect: "3",
+      enums: [
+        %{
+          description: "Micro air vehicle / autopilot classes.",
+          entries: [
+            %{
+              description: "Generic autopilot, full support for everything",
+              name: :mav_autopilot_generic,
+              params: [],
+              value: 0
+            },
+            %{
+              description: "An autopilot entry included from an include file",
+              name: :mav_autopilot_included,
+              params: [],
+              value: 1
+            }
+          ],
+          name: :mav_autopilot
+        }
+      ],
+      messages: [
+        %{
+          description: "The heartbeat message shows that a system is present and responding.",
+          fields: [
+            %{
+              constant_val: nil,
+              description: "Type of the MAV",
+              display: nil,
+              enum: :mav_type,
+              is_extension: false,
+              name: "type",
+              omit_arg: false,
+              ordinality: 1,
+              print_format: nil,
+              type: "uint8_t",
+              units: nil
+            }
+          ],
+          has_ext_fields: false,
+          id: 0,
+          name: "HEARTBEAT"
+        },
+        %{
+          description: "A heartbeat message included from an include file",
+          fields: [
+            %{
+              constant_val: nil,
+              description: "A field included from an include file",
+              display: nil,
+              enum: :mav_type,
+              is_extension: false,
+              name: "type",
+              omit_arg: false,
+              ordinality: 1,
+              print_format: nil,
+              type: "uint8_t",
+              units: nil
+            }
+          ],
+          has_ext_fields: false,
+          id: 100000,
+          name: "HEARTBEAT_INCLUDED"
+         }
+      ],
+      version: "3"
+    } = parse_mavlink_xml("#{@root_dir}/test/input/mini_mavlink_include.xml")
   end
 
   
