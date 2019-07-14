@@ -313,7 +313,7 @@ defmodule Mix.Tasks.Mavlink do
     end
   end
   
-  
+  # TODO Message 22 PARAM VALUE CRC_EXTRA SHOULD BE 220 BUT IT'S 37, ARRAY PARAMETER
   @spec calculate_message_crc_extra(Mavlink.Parser.message_description) :: 0..255
   defp calculate_message_crc_extra(message) do
     reduce(

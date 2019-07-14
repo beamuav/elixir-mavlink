@@ -2,7 +2,7 @@ defmodule Mavlink.Test.Tasks do
   use ExUnit.Case
   import Mix.Tasks.Mavlink
   
-  @input "#{File.cwd!}/test/input/common.xml"
+  @input "#{File.cwd!}/test/input/ardupilotmega.xml"
   @output "#{File.cwd!}/test/output/Mavlink.ex"
  
   test "generate" do
