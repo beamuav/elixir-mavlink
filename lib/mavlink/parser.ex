@@ -49,7 +49,7 @@ defmodule Mavlink.Parser do
   """
   
  
-  import Enum, only: [empty?: 1]
+  import Enum, only: [empty?: 1, reduce: 3, reverse: 1]
   import List, only: [first: 1]
   import Record, only: [defrecord: 2, extract: 2]
   import Regex, only: [replace: 3]
@@ -57,6 +57,7 @@ defmodule Mavlink.Parser do
 
   
   @xmerl_header "xmerl/include/xmerl.hrl"
+  defrecord :xmlElement, extract(:xmlElement, from_lib: @xmerl_header)
   defrecord :xmlAttribute, extract(:xmlAttribute, from_lib: @xmerl_header)
   defrecord :xmlText, extract(:xmlText, from_lib: @xmerl_header)
   
@@ -127,20 +128,35 @@ defmodule Mavlink.Parser do
   
   
   @type message_description :: %{
-    id:           integer,
-    name:         String.t,
-    description:  String.t,
-    fields:       [ field_description ]
+    id:             integer,
+    name:           String.t,
+    description:    String.t,
+    has_ext_fields: boolean,
+    fields:         [ field_description ]
   }
   
   @spec parse_message(tuple, integer) :: message_description
   defp parse_message(element, version) do
-    %{
-      id:           :xmerl_xpath.string('@id', element) |> extract_text |> to_integer,
-      name:         :xmerl_xpath.string('@name', element) |> extract_text,
-      description:  :xmerl_xpath.string('/message/description/text()', element) |> extract_text,
-      fields:       (for field <- :xmerl_xpath.string('/message/field', element), do: parse_field(field, version))
-    }
+    message_description = reduce(
+      xmlElement(element, :content),
+      %{
+        id:             :xmerl_xpath.string('@id', element) |> extract_text |> to_integer,
+        name:           :xmerl_xpath.string('@name', element) |> extract_text,
+        description:    :xmerl_xpath.string('/message/description/text()', element) |> extract_text,
+        has_ext_fields: false,
+        fields:         []
+       },
+      fn (next_child, acc) ->
+        case xmlElement(next_child, :name) do
+          :field ->
+            %{acc | fields: [parse_field(next_child, version, acc.has_ext_fields) | acc.fields]}
+          :extensions ->
+            %{acc | has_ext_fields: true}
+          _ ->
+            acc
+        end
+      end)
+    %{message_description | fields: reverse(message_description.fields)}
   end
   
   
@@ -148,6 +164,7 @@ defmodule Mavlink.Parser do
     type:         String.t,
     ordinality:   pos_integer,
     omit_arg:     boolean,
+    is_extension: boolean,
     constant_val: any,
     name:         String.t,
     enum:         nil | atom,
@@ -157,8 +174,8 @@ defmodule Mavlink.Parser do
     description:  String.t
   }
   
-  @spec parse_field(tuple, integer) :: field_description
-  defp parse_field(element, version) do
+  @spec parse_field(tuple, integer, boolean) :: field_description
+  defp parse_field(element, version, is_extension_field) do
     {type, ordinality, omit_arg, constant_val} =
       :xmerl_xpath.string('@type', element)
       |> extract_text
@@ -168,6 +185,7 @@ defmodule Mavlink.Parser do
       type:         type,
       ordinality:   ordinality,
       omit_arg:     omit_arg,
+      is_extension: is_extension_field,
       constant_val: constant_val,
       name:         :xmerl_xpath.string('@name', element) |> extract_text |> downcase,
       enum:         :xmerl_xpath.string('@enum', element) |> extract_text |> nil_to_empty_string |> downcase |> to_atom_or_nil,
