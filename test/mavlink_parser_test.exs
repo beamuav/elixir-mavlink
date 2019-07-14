@@ -2,11 +2,14 @@ defmodule Mavlink.Test.Parser do
   use ExUnit.Case
   import Mavlink.Parser
 
+  
   @root_dir File.cwd!
 
+  
   test "parse mavlink XML no such file" do
     assert {:error, :enoent} = parse_mavlink_xml("snark")
   end
+  
   
   test "parse mini mavlink XML" do
     assert %{
@@ -46,5 +49,76 @@ defmodule Mavlink.Test.Parser do
               version: 3
             } = parse_mavlink_xml("#{@root_dir}/test/input/mini_mavlink.xml")
   end
+  
+  
+  test "extension fields identified" do
+    assert  %{
+              dialect: 0,
+              enums: [],
+              messages: [
+                %{
+                  description: "Optical flow from a flow sensor (e.g. optical mouse sensor)",
+                  fields: [
+                    %{
+                      constant_val: nil,
+                      description: "Optical flow quality / confidence. 0: bad, 255: maximum quality",
+                      display: nil,
+                      enum: nil,
+                      is_extension: false,
+                      name: "quality",
+                      omit_arg: false,
+                      ordinality: 1,
+                      print_format: nil,
+                      type: "uint8_t",
+                      units: nil
+                    },
+                    %{
+                      constant_val: nil,
+                      description: "Ground distance in meters. Positive value: distance known. Negative value: Unknown distance",
+                      display: nil,
+                      enum: nil,
+                      is_extension: false,
+                      name: "ground_distance",
+                      omit_arg: false,
+                      ordinality: 1,
+                      print_format: nil,
+                      type: "float",
+                      units: :m
+                    },
+                    %{
+                      constant_val: nil,
+                      description: "Flow rate in radians/second about X axis",
+                      display: nil,
+                      enum: nil,
+                      is_extension: true,
+                      name: "flow_rate_x",
+                      omit_arg: false,
+                      ordinality: 1,
+                      print_format: nil,
+                      type: "float",
+                      units: :"rad/s"
+                    },
+                    %{
+                      constant_val: nil,
+                      description: "Flow rate in radians/second about Y axis",
+                      display: nil,
+                      enum: nil,
+                      is_extension: true,
+                      name: "flow_rate_y",
+                      omit_arg: false,
+                      ordinality: 1,
+                      print_format: nil,
+                      type: "float",
+                      units: :"rad/s"
+                    }
+                  ],
+                  id: 100,
+                  name: "OPTICAL_FLOW"
+                }
+              ],
+              version: 2
+            } =  parse_mavlink_xml("#{@root_dir}/test/input/extensions.xml")
+  end
+
   
 end
