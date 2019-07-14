@@ -187,7 +187,7 @@ defmodule Mavlink.Parser do
       omit_arg:     omit_arg,
       is_extension: is_extension_field,
       constant_val: constant_val,
-      name:         :xmerl_xpath.string('@name', element) |> extract_text |> downcase,
+      name:         :xmerl_xpath.string('@name', element) |> extract_text, # You can't downcase this, wrecks crc_extra calc for POWER_STATUS
       enum:         :xmerl_xpath.string('@enum', element) |> extract_text |> nil_to_empty_string |> downcase |> to_atom_or_nil,
       display:      :xmerl_xpath.string('@display', element) |> extract_text |> to_atom_or_nil,
       print_format: :xmerl_xpath.string('@print_format', element) |> extract_text,
