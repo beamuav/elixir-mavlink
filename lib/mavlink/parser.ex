@@ -49,7 +49,7 @@ defmodule Mavlink.Parser do
   """
   
  
-  import Enum, only: [empty?: 1, reduce: 3, reverse: 1]
+  import Enum, only: [empty?: 1, reduce: 3, reverse: 1, map: 2, sort_by: 2, into: 3, filter: 2]
   import List, only: [first: 1]
   import Record, only: [defrecord: 2, extract: 2]
   import Regex, only: [replace: 3]
@@ -63,17 +63,84 @@ defmodule Mavlink.Parser do
   
   @spec parse_mavlink_xml(String.t) :: %{version: integer, dialect: integer, enums: [ enum_description ], messages: [ message_description ]} | {:error, :enoent}
   def parse_mavlink_xml(path) do
-    case :xmerl_scan.file(path) do
-      {defs, []} ->
-        version = :xmerl_xpath.string('/mavlink/version/text()', defs) |> extract_text |> to_integer
-        %{
-          version:  version,
-          dialect:  :xmerl_xpath.string('/mavlink/dialect/text()', defs) |> extract_text |> to_integer,
-          enums:    (for enum <- :xmerl_xpath.string('/mavlink/enums/enum', defs), do: parse_enum(enum)),
-          messages: (for msg <- :xmerl_xpath.string('/mavlink/messages/message', defs), do: parse_message(msg, version))
-        }
-      {:error, :enoent} ->
-        {:error, :enoent}
+    parse_mavlink_xml(path, %{}) |> Map.values |> combine_definitions
+  end
+  
+  
+  # See https://mavlink.io/en/guide/xml_schema.html, mavparse.py merge_enums() and
+  # check_duplicates() for proper validation. If making changes to definitions test
+  # first with mavgen for now.
+  
+  def combine_definitions([single_def]) do
+    single_def
+  end
+  
+  def combine_definitions([
+    %{
+      version:  v1,
+      dialect:  d1,
+      enums:    e1,
+      messages: m1
+     },
+    %{
+      version:  v2,
+      dialect:  d2,
+      enums:    e2,
+      messages: m2
+     } | more_definitions]) do
+    combine_definitions([
+      %{
+        version:  max(v1, v2), # strings > nil
+        dialect:  max(v1, v2),
+        enums:    merge_enums(e1, e2),
+        messages: sort_by(m2 ++ m1, & &1.id)
+       } | more_definitions])
+  end
+  
+  
+  def merge_enums(as, bs) do
+    a_index = into(as, %{}, fn (enum) -> {enum.name, enum} end)
+    b_index = into(bs, %{}, fn (enum) -> {enum.name, enum} end)
+    only_in_a = for name <- filter(Map.keys(a_index), & !Map.has_key?(b_index, &1)), do: a_index[name]
+    only_in_b = for name <- filter(Map.keys(a_index), & !Map.has_key?(a_index, &1)), do: b_index[name]
+    in_a_and_b = for name <- filter(Map.keys(a_index), & Map.has_key?(b_index, &1)) do
+      %{a_index[name] | entries:  sort_by(a_index[name].entries ++ b_index[name].entries, & &1.value)}
+    end
+    IO.inspect in_a_and_b
+    sort_by(only_in_a ++ in_a_and_b ++ only_in_b, & &1.name)
+  end
+  
+  
+  def parse_mavlink_xml(path, paths) do
+    case Map.has_key?(paths, path) do
+      true ->
+        paths   # Don't include a file twice
+    
+      false ->
+        case :xmerl_scan.file(path) do
+          {defs, []} ->
+            # Recursively add new includes to paths
+            paths = reduce(
+              :xmerl_xpath.string('/mavlink/include/text()', defs) |> map(&extract_text/1),
+              paths,
+              fn (next_include, acc) ->
+                include_path = Path.dirname(path) <> "/" <> next_include
+                parse_mavlink_xml(include_path, acc)
+              end
+            )
+            
+            # And add ourselves to paths if we're not already there through a circular dependency
+            version = :xmerl_xpath.string('/mavlink/version/text()', defs) |> extract_text |> nil_to_empty_string
+            Map.put_new(paths, path, %{
+              version:  version,
+              dialect:  :xmerl_xpath.string('/mavlink/dialect/text()', defs) |> extract_text |> nil_to_empty_string,
+              enums:    (for enum <- :xmerl_xpath.string('/mavlink/enums/enum', defs), do: parse_enum(enum)),
+              messages: (for msg <- :xmerl_xpath.string('/mavlink/messages/message', defs), do: parse_message(msg, version))
+            })
+            
+          {:error, :enoent} ->
+            Map.put(paths, path, {:error, "File '#{path}' does not exist"})
+        end
     end
   end
   
@@ -223,7 +290,9 @@ defmodule Mavlink.Parser do
   
   # Can't spec this without causing dialyzer "nil can't match binary" - Erlang types?
   defp extract_text([xmlText(value: value)]), do: clean_string(value)
+  defp extract_text(xmlText(value: value)), do: clean_string(value)
   defp extract_text([xmlAttribute(value: value)]), do: clean_string(value)
+  defp extract_text(xmlAttribute(value: value)), do: clean_string(value)
   defp extract_text(_), do: nil
   
   
