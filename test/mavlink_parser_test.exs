@@ -35,7 +35,7 @@ defmodule Mavlink.Test.Parser do
                     %{
                       description: "Type of the MAV (quadrotor, helicopter, etc., up to 15 types, defined in MAV_TYPE ENUM)",
                       display: nil,
-                      enum: :mav_type,
+                      enum: "mav_type",
                       name: "type",
                       ordinality: 1,
                       type: "uint8_t",
@@ -63,7 +63,7 @@ defmodule Mavlink.Test.Parser do
                       constant_val: nil,
                       description: "Optical flow quality / confidence. 0: bad, 255: maximum quality",
                       display: nil,
-                      enum: nil,
+                      enum: "",
                       is_extension: false,
                       name: "quality",
                       omit_arg: false,
@@ -76,7 +76,7 @@ defmodule Mavlink.Test.Parser do
                       constant_val: nil,
                       description: "Ground distance in meters. Positive value: distance known. Negative value: Unknown distance",
                       display: nil,
-                      enum: nil,
+                      enum: "",
                       is_extension: false,
                       name: "ground_distance",
                       omit_arg: false,
@@ -89,7 +89,7 @@ defmodule Mavlink.Test.Parser do
                       constant_val: nil,
                       description: "Flow rate in radians/second about X axis",
                       display: nil,
-                      enum: nil,
+                      enum: "",
                       is_extension: true,
                       name: "flow_rate_x",
                       omit_arg: false,
@@ -102,7 +102,7 @@ defmodule Mavlink.Test.Parser do
                       constant_val: nil,
                       description: "Flow rate in radians/second about Y axis",
                       display: nil,
-                      enum: nil,
+                      enum: "",
                       is_extension: true,
                       name: "flow_rate_y",
                       omit_arg: false,
@@ -123,7 +123,7 @@ defmodule Mavlink.Test.Parser do
   
   test "parse mini mavlink with include" do
     assert %{
-      dialect: "3",
+      dialect: "0",
       enums: [
         %{
           description: "Micro air vehicle / autopilot classes.",
@@ -152,7 +152,7 @@ defmodule Mavlink.Test.Parser do
               constant_val: nil,
               description: "Type of the MAV",
               display: nil,
-              enum: :mav_type,
+              enum: "mav_type",
               is_extension: false,
               name: "type",
               omit_arg: false,
@@ -173,7 +173,7 @@ defmodule Mavlink.Test.Parser do
               constant_val: nil,
               description: "A field included from an include file",
               display: nil,
-              enum: :mav_type,
+              enum: "mav_type",
               is_extension: false,
               name: "type",
               omit_arg: false,
