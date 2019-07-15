@@ -102,7 +102,7 @@ defmodule Mavlink.Parser do
     a_index = into(as, %{}, fn (enum) -> {enum.name, enum} end)
     b_index = into(bs, %{}, fn (enum) -> {enum.name, enum} end)
     only_in_a = for name <- filter(Map.keys(a_index), & !Map.has_key?(b_index, &1)), do: a_index[name]
-    only_in_b = for name <- filter(Map.keys(a_index), & !Map.has_key?(a_index, &1)), do: b_index[name]
+    only_in_b = for name <- filter(Map.keys(b_index), & !Map.has_key?(a_index, &1)), do: b_index[name]
     
     in_a_and_b = for name <- filter(Map.keys(a_index), & Map.has_key?(b_index, &1)) do
       %{a_index[name] | entries:  sort_by(a_index[name].entries ++ b_index[name].entries, & &1.value)}
