@@ -30,7 +30,8 @@ defmodule Mavlink.Utils do
       int16_t:                  3,
       uint8_t:                  4,
       uint8_t_mavlink_version:  4,
-      int8_t:                   4
+      int8_t:                   4,
+      char:                     4
     }
     
     sort_by(fields, &Map.fetch(type_order_map, String.to_atom(&1.type)))
