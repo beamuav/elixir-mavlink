@@ -4,9 +4,11 @@ defmodule Mix.Tasks.Mavlink do
   
   import Mavlink.Parser
   import DateTime
-  import Enum, only: [count: 1, join: 2, map: 2, filter: 2, reduce: 3, reverse: 1]
+  import Enum, only: [count: 1, join: 2, map: 2, filter: 2, reduce: 3, reverse: 1, sort: 1, into: 3]
   import String, only: [trim: 1, replace: 3, split: 2, capitalize: 1, downcase: 1]
   import Mavlink.Utils
+  
+  use Bitwise, only_operators: true
   
   
   @shortdoc "Generate Mavlink Module from XML"
@@ -283,7 +285,10 @@ defmodule Mix.Tasks.Mavlink do
   
   
   @spec get_message_code_fragments([Mavlink.Parser.message_description], [enum_detail]) :: [ String.t ]
-  defp get_message_code_fragments(messages, _enums) do
+  defp get_message_code_fragments(messages, enums) do
+    # Lookup used by looks_like_a_bitmask?()
+    enums_by_name = into(enums, %{}, fn (enum) -> {Atom.to_string(enum.name), enum} end)
+
     for message <- messages do
       module_name = message.name |> module_case
       field_names = message.fields |> map(& ":" <> downcase(&1.name)) |> join(", ")
@@ -292,7 +297,7 @@ defmodule Mix.Tasks.Mavlink do
       
       # Have to append "_f" to stop clash with reserved elixir words like "end"
       unpack_binary_pattern = wire_order |> map(& downcase(&1.name) <> "_f::" <> type_to_binary(&1).pattern) |> join(",")
-      unpack_struct_fields = message.fields |> map(& downcase(&1.name) <> ": " <> unpack_field_code_fragment(&1)) |> join(", ")
+      unpack_struct_fields = message.fields |> map(& downcase(&1.name) <> ": " <> unpack_field_code_fragment(&1, enums_by_name)) |> join(", ")
       crc_extra = message |> calculate_message_crc_extra
       expected_payload_size = reduce(message.fields, 0, fn(field, sum) -> sum + type_to_binary(field).size end) # Without Mavlink 2 trailing 0 truncation
       %{
@@ -327,7 +332,6 @@ defmodule Mix.Tasks.Mavlink do
     end
   end
   
-  # TODO Message 22 PARAM VALUE CRC_EXTRA SHOULD BE 220 BUT IT'S 37, ARRAY PARAMETER
   @spec calculate_message_crc_extra(Mavlink.Parser.message_description) :: 0..255
   defp calculate_message_crc_extra(message) do
     reduce(
@@ -345,23 +349,28 @@ defmodule Mix.Tasks.Mavlink do
   end
   
   
-  def unpack_field_code_fragment(%{name: name, ordinality: 1, enum: ""}) do
+  defp unpack_field_code_fragment(%{name: name, ordinality: 1, enum: ""}, _) do
     downcase(name) <> "_f"
   end
   
-  def unpack_field_code_fragment(%{name: name, ordinality: 1, enum: enum, display: :bitmask}) when enum != "" do
+  defp unpack_field_code_fragment(%{name: name, ordinality: 1, enum: enum, display: :bitmask}, _) when enum != "" do
     downcase(name) <> "_f |> unpack_bitmask(:#{enum})"
   end
   
-  def unpack_field_code_fragment(%{name: name, ordinality: 1, enum: enum}) do
-    "decode(:#{enum}, #{downcase(name)}_f)" # TODO enums parse as string
+  defp unpack_field_code_fragment(%{name: name, ordinality: 1, enum: enum}, enums_by_name) do
+    case looks_like_a_bitmask?(enums_by_name[enum]) do
+      true ->
+        downcase(name) <> "_f |> unpack_bitmask(:#{enum})"
+      false ->
+        "decode(:#{enum}, #{downcase(name)}_f)"
+    end
   end
   
-  def unpack_field_code_fragment(%{name: name, type: "char"}) do
+  defp unpack_field_code_fragment(%{name: name, type: "char"}, _) do
     downcase(name) <> ~s[_f |> replace_trailing(<<0>>, "")]
   end
   
-  def unpack_field_code_fragment(field) do
+  defp unpack_field_code_fragment(field, _) do
     "#{downcase(field.name)}_f |> unpack_array(fn(<<elem::#{type_to_binary(field).pattern},rest::binary>>) ->  {elem, rest} end)"
   end
   
@@ -399,6 +408,15 @@ defmodule Mix.Tasks.Mavlink do
     |> map(&capitalize/1)
     |> join("")
   end
+  
+  
+  # Some bitmask fields e.g. Mavlink.EkfStatusReport.flags are not marked with display="bitmask". This function
+  # returns true if the enum entry values start with 1, 2, 4 and then continue increasing through powers of 2.
+  defp looks_like_a_bitmask?(%{entries: entries}), do: looks_like_a_bitmask?(entries |> map(& &1.value) |> sort)
+  defp looks_like_a_bitmask?([1, 2, 4 | rest]), do: looks_like_a_bitmask?(rest)
+  defp looks_like_a_bitmask?([8 | rest]), do: looks_like_a_bitmask?(rest |> map(& &1 >>> 1))
+  defp looks_like_a_bitmask?([]), do: true
+  defp looks_like_a_bitmask?(_), do: false
   
   
   # Have to deal with some overlap between MAVLink and Elixir types
