@@ -43,35 +43,52 @@ defmodule Listen do
           payload::binary-size(payload_length),
           checksum::little-unsigned-integer-size(16)>>} ->
       
-          case Mavlink.msg_crc_size(message_id) do
-            {:ok, crc, expected_length} ->
-              checksum_calc = :binary.bin_to_list(raw, {1, payload_length + 9}) |> x25_crc() |> x25_crc([crc])
-              checksum_ok = (checksum == checksum_calc)
-              
-              case checksum_ok do
-                true ->
-                  payload_truncation = 8 * (expected_length - payload_length)
-                  payload = payload <> <<0::size(payload_truncation)>>
-                  IO.puts("#{sequence_number}: #{a1}.#{a2}.#{a3}.#{a4}:#{port} sent message from system #{system_id} component #{component_id}")
-                  
-                  case Mavlink.unpack(message_id, payload) do
-                    {:ok, message} ->
-                      IO.inspect(message)
-                    {:error, _} ->
-                      IO.puts("...COULDN'T UNPACK message id #{message_id}: #{inspect(raw)}")
-                  end
-                _ ->
-                  IO.puts("#{sequence_number}: FAILED CHECKSUM message id #{message_id}\npayload expected/actual length #{expected_length}/#{payload_length} crc #{crc}:\n#{inspect(raw)}")
-              end
-              
-            {:error, _} ->
-              IO.puts("#{sequence_number}: UNKNOWN MESSAGE ID #{message_id}")
-          end
+          dump(2, a1, a2, a3, a4, port, raw, payload_length, sequence_number, system_id, component_id, message_id, payload, checksum)
+      
+      {:udp, _sock, {a1, a2, a3, a4}, port,
+        raw=<<0xfe,
+          payload_length::unsigned-integer-size(8),
+          sequence_number::unsigned-integer-size(8),
+          system_id::unsigned-integer-size(8),
+          component_id::unsigned-integer-size(8),
+          message_id::unsigned-integer-size(8),
+          payload::binary-size(payload_length),
+          checksum::little-unsigned-integer-size(16)>>} ->
+      
+          dump(1, a1, a2, a3, a4, port, raw, payload_length, sequence_number, system_id, component_id, message_id, payload, checksum)
           
       other ->
         IO.puts "???: UNKNOWN FRAME #{inspect(other)}"
     end
     run(:socket_opened)
+  end
+  
+  
+  def dump(version, a1, a2, a3, a4, port, raw, payload_length, sequence_number, system_id, component_id, message_id, payload, checksum) do
+    case Mavlink.msg_crc_size(message_id) do
+      {:ok, crc, expected_length} ->
+        checksum_calc = :binary.bin_to_list(raw, {1, payload_length + elem({0, 5, 9}, version)}) |> x25_crc() |> x25_crc([crc])
+        checksum_ok = (checksum == checksum_calc)
+        
+        case checksum_ok do
+          true ->
+            payload_truncation = 8 * (expected_length - payload_length)
+            payload = payload <> <<0::size(payload_truncation)>>
+            IO.puts("#{sequence_number}: #{a1}.#{a2}.#{a3}.#{a4}:#{port} sent MAVLink v#{version} message from system #{system_id} component #{component_id}")
+            
+            case Mavlink.unpack(message_id, payload) do
+              {:ok, message} ->
+                IO.inspect(message)
+              {:error, _} ->
+                IO.puts("...COULDN'T UNPACK message id #{message_id}: #{inspect(raw)}")
+            end
+          _ ->
+            IO.puts("#{sequence_number}: FAILED CHECKSUM message id #{message_id}\npayload expected/actual length #{expected_length}/#{payload_length} crc #{crc}:\n#{inspect(raw)}")
+        end
+        
+      {:error, _} ->
+        IO.puts("#{sequence_number}: UNKNOWN MESSAGE ID #{message_id}")
+    end
   end
 end
 
