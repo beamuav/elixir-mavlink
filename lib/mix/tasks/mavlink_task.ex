@@ -13,10 +13,10 @@ defmodule Mix.Tasks.Mavlink do
   
   @shortdoc "Generate Mavlink Module from XML"
   @spec run([String.t]) :: :ok
-  def run(["generate", input, output]) do
+  def run([input, output]) do
     case parse_mavlink_xml(input) do
-      {:error, :enoent} ->
-        IO.puts("Couldn't open input file '#{input}'.")
+      {:error, message} ->
+        IO.puts message
         
       %{version: version, dialect: dialect, enums: enums, messages: messages} ->
      
@@ -142,14 +142,14 @@ defmodule Mix.Tasks.Mavlink do
           
           
           @doc "Return encoded integer value used in a Mavlink message for an enumeration value"
-          @spec encode(enum_value) :: integer
+          @spec encode(enum_type, enum_value) :: integer
           #{enum_code_fragments |> map(& &1[:encode]) |> join("\n  ") |> trim}
           
           
           @doc "Return the atom representation of a Mavlink enumeration value from the enumeration type and encoded integer"
-          @spec decode(enum_type, integer) :: enum_value | number
+          @spec decode(enum_type, integer) :: enum_value
           #{enum_code_fragments |> map(& &1[:decode]) |> join("\n  ") |> trim}
-          def decode(_, value), do: value
+          def decode(_enum, _value), do: {:error, :no_such_enum}
           
           
           @doc "Return the message checksum for a message with a specified id"
@@ -257,7 +257,7 @@ defmodule Mix.Tasks.Mavlink do
               name: entry_name,
               describe: ~s/def describe(:#{entry_name}), do: "#{escape(entry_description)}"/,
               describe_params: get_param_code_fragments(entry_name, entry_params),
-              encode: ~s/def encode(:#{entry_name}), do: #{entry_value_string}/,
+              encode: ~s/def encode(:#{enum_name}, :#{entry_name}), do: #{entry_value_string}/,
               decode: ~s/def decode(:#{enum_name}, #{entry_value_string}), do: :#{entry_name}/
             }
             | details
@@ -360,6 +360,7 @@ defmodule Mix.Tasks.Mavlink do
   defp unpack_field_code_fragment(%{name: name, ordinality: 1, enum: enum}, enums_by_name) do
     case looks_like_a_bitmask?(enums_by_name[enum]) do
       true ->
+        IO.puts(~s[Warning: assuming #{enum} is a bitmask although display="bitmask" not set])
         downcase(name) <> "_f |> unpack_bitmask(:#{enum})"
       false ->
         "decode(:#{enum}, #{downcase(name)}_f)"
@@ -428,6 +429,7 @@ defmodule Mix.Tasks.Mavlink do
   defp field_type(%{type: type}), do: "Mavlink.#{type}"
   
   
+  # Map field types to a binary pattern code fragment and a size
   defp type_to_binary(%{type: type, ordinality: 1}), do: type_to_binary(type)
   defp type_to_binary(%{type: "char", ordinality: n}), do: %{pattern: "binary-size(#{n})", size: n}
   defp type_to_binary(%{type: "uint8_t", ordinality: n}), do: %{pattern: "binary-size(#{n})", size: n}
