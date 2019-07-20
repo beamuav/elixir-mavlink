@@ -131,10 +131,10 @@ defmodule Mavlink.Parser do
             )
             
             # And add ourselves to paths if we're not already there through a circular dependency
-            version = :xmerl_xpath.string('/mavlink/version/text()', defs) |> extract_text |> nil_to_empty_string
+            version = :xmerl_xpath.string('/mavlink/version/text()', defs) |> extract_text |> nil_to_zero_string
             Map.put_new(paths, path, %{
               version:  version,
-              dialect:  :xmerl_xpath.string('/mavlink/dialect/text()', defs) |> extract_text |> nil_to_empty_string,
+              dialect:  :xmerl_xpath.string('/mavlink/dialect/text()', defs) |> extract_text |> nil_to_zero_string,
               enums:    (for enum <- :xmerl_xpath.string('/mavlink/enums/enum', defs), do: parse_enum(enum)),
               messages: (for msg <- :xmerl_xpath.string('/mavlink/messages/message', defs), do: parse_message(msg, version))
             })
@@ -203,7 +203,7 @@ defmodule Mavlink.Parser do
     fields:         [ field_description ]
   }
   
-  @spec parse_message(tuple, integer) :: message_description
+  @spec parse_message(tuple, String.t) :: message_description
   defp parse_message(element, version) do
     message_description = reduce(
       xmlElement(element, :content),
@@ -230,19 +230,19 @@ defmodule Mavlink.Parser do
   
   @type field_description :: %{
     type:         String.t,
-    ordinality:   pos_integer,
+    ordinality:   integer,
     omit_arg:     boolean,
     is_extension: boolean,
-    constant_val: any,
+    constant_val: String.t | nil,
     name:         String.t,
-    enum:         nil | atom,
-    display:      nil | :bitmask,
-    print_format: nil | String.t,
-    units:        nil | atom,
+    enum:         String.t,
+    display:      :bitmask | nil,
+    print_format: String.t | nil,
+    units:        atom | nil,
     description:  String.t
   }
   
-  @spec parse_field(tuple, integer, boolean) :: field_description
+  @spec parse_field(tuple, binary(), boolean) :: field_description
   defp parse_field(element, version, is_extension_field) do
     {type, ordinality, omit_arg, constant_val} =
       :xmerl_xpath.string('@type', element)
@@ -260,12 +260,12 @@ defmodule Mavlink.Parser do
       display:      :xmerl_xpath.string('@display', element) |> extract_text |> to_atom_or_nil,
       print_format: :xmerl_xpath.string('@print_format', element) |> extract_text,
       units:        :xmerl_xpath.string('@units', element) |> extract_text |> to_atom_or_nil,
-      description:  :xmerl_xpath.string('/field/text()', element) |> extract_text
+      description:  :xmerl_xpath.string('/field/text()', element) |> extract_text |> nil_to_empty_string
     }
   end
   
   
-  @spec parse_type_ordinality_omit_arg_constant_val(String.t, integer) :: {String.t, integer, boolean, any}
+  @spec parse_type_ordinality_omit_arg_constant_val(String.t, String.t) :: {String.t, integer, boolean, String.t | nil}
   defp parse_type_ordinality_omit_arg_constant_val(type_string, version) do
     [type | ordinality] = type_string
       |> split(["[", "]"], trim: true)
@@ -307,6 +307,10 @@ defmodule Mavlink.Parser do
   @spec nil_to_empty_string(String.t | nil) :: String.t
   defp nil_to_empty_string(nil), do: ""
   defp nil_to_empty_string(value) when is_binary(value), do: value
+  
+  @spec nil_to_zero_string(String.t | nil) :: String.t
+  defp nil_to_zero_string(nil), do: "0"
+  defp nil_to_zero_string(value) when is_binary(value), do: value
   
   
   @spec to_atom_or_nil(String.t | nil) :: atom | nil
