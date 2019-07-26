@@ -10,7 +10,7 @@ defmodule Mavlink.Utils do
   
   
   import List, only: [flatten: 1]
-  import Enum, only: [sort_by: 2]
+  import Enum, only: [sort_by: 2, reduce: 3, join: 2, map: 2, reverse: 1]
   
   
   @doc """
@@ -79,4 +79,47 @@ defmodule Mavlink.Utils do
     crc &&& 0xffff
   end
   
+  
+  @doc "Helper function for messages to pack bitmask fields"
+  @spec pack_bitmask(MapSet.t(Mavlink.Types.enum_value), Mavlink.Types.enum_type, (Mavlink.Types.enum_value, Mavlink.Types.enum_type -> integer)) :: integer
+  def pack_bitmask(flag_set, enum, encode), do: reduce(flag_set, 0, & &2 ^^^ encode.(&1, enum))
+  
+  
+  @doc "Helper function for messages to pack string fields"
+  @spec pack_string(String.t, integer) :: binary()
+  def pack_string(s, ordinality) do
+    s |> String.pad_trailing(ordinality - byte_size(s), <<0>>)
+  end
+  
+  
+  @doc "Helper function for messages to pack array fields"
+  @spec pack_array(list(), integer, (any() -> binary())) :: binary()
+  def pack_array(a, ordinality, _) when length(a) > ordinality, do: {:error, "Maximum elements allowed is \#{ordinality}"}
+  def pack_array(a, ordinality, field_packer) when length(a) < ordinality, do: pack_array(a ++ [0], ordinality, field_packer)
+  def pack_array(a, _, field_packer), do: a |> map(field_packer) |> join(<<>>)
+  
+  
+  @doc "Helper function for decode() to unpack array fields"
+  @spec unpack_array(binary(), (binary()-> {any(), list()})) :: list()
+  def unpack_array(bin, fun), do: unpack_array(bin, fun, [])
+  def unpack_array(<<>>, _, lst), do: reverse(lst)
+  def unpack_array(bin, fun, lst) do
+    {elem, rest} = fun.(bin)
+    unpack_array(rest, fun, [elem | lst])
+  end
+  
+  
+  @doc "Helper function for decode() to unpack bitmask fields"
+  @spec unpack_bitmask(integer, Mavlink.Types.enum_type, (integer, Mavlink.Types.enum_type -> Mavlink.Types.enum_value), MapSet.t, integer) :: MapSet.t(Mavlink.Types.enum_value)
+  def unpack_bitmask(value, enum, decode, acc \\ MapSet.new(), pos \\ 1) do
+    case {decode.(enum, pos), (value &&& pos) != 0} do
+      {not_atom, _} when not is_atom(not_atom) ->
+        acc
+      {entry, true} ->
+        unpack_bitmask(value, enum, decode, MapSet.put(acc, entry), pos <<< 1)
+      {_, false} ->
+        unpack_bitmask(value, enum, decode, acc, pos <<< 1)
+    end
+  end
+
 end
