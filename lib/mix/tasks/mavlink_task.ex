@@ -154,12 +154,12 @@ defmodule Mix.Tasks.Mavlink do
           
           
           @doc "Return encoded integer value used in a Mavlink message for an enumeration value"
-          @spec encode(Mavlink.Types.enum_value, Mavlink.Types.enum_type) :: integer
+          #{enum_code_fragments |> map(& &1[:encode_spec]) |> join("\n  ") |> trim}
           #{enum_code_fragments |> map(& &1[:encode]) |> join("\n  ") |> trim}
           
           
           @doc "Return the atom representation of a Mavlink enumeration value from the enumeration type and encoded integer"
-          @spec decode(integer, Mavlink.Types.enum_type) :: Mavlink.Types.enum_value
+          #{enum_code_fragments |> map(& &1[:decode_spec]) |> join("\n  ") |> trim}
           #{enum_code_fragments |> map(& &1[:decode]) |> join("\n  ") |> trim}
           def decode(_enum, _value), do: {:error, :no_such_enum}
           
@@ -211,9 +211,13 @@ defmodule Mix.Tasks.Mavlink do
         describe_params: filter(entry_code_fragments, & &1 != nil)
           |> map(& &1[:describe_params])
           |> join("\n  "),
+      
+        encode_spec: "@spec encode(Mavlink.Types.#{name}, :#{name}) :: integer",
           
         encode: map(entry_code_fragments, & &1[:encode])
           |> join("\n  "),
+      
+        decode_spec: "@spec decode(integer, :#{name}) :: Mavlink.Types.#{name}",
         
         decode: map(entry_code_fragments, & &1[:decode])
           |> join("\n  ")
