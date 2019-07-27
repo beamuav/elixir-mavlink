@@ -112,7 +112,7 @@ defmodule Mavlink.Utils do
   @doc "Helper function for decode() to unpack bitmask fields"
   @spec unpack_bitmask(integer, Mavlink.Types.enum_type, (integer, Mavlink.Types.enum_type -> Mavlink.Types.enum_value), MapSet.t, integer) :: MapSet.t(Mavlink.Types.enum_value)
   def unpack_bitmask(value, enum, decode, acc \\ MapSet.new(), pos \\ 1) do
-    case {decode.(enum, pos), (value &&& pos) != 0} do
+    case {decode.(pos, enum), (value &&& pos) != 0} do
       {not_atom, _} when not is_atom(not_atom) ->
         acc
       {entry, true} ->
