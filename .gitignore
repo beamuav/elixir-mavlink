@@ -16,4 +16,8 @@ erl_crash.dump
 # Also ignore archive artifacts (built via "mix archive.build").
 *.ez
 
+# Don't include generated Mavlink file
+Mavlink.ex
+
+# Don't include any test outputs
 /test/output/*
