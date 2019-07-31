@@ -7,11 +7,20 @@ defmodule Mavlink.Test.Tasks do
   @output "#{@output_dir}/Mavlink.ex"
 
   test "generate" do
+    # Setup output directory
     File.mkdir_p(@output_dir)
     File.rm(@output)
+    
+    # Run mix task
     run([@input, @output])
+    
+    # Did it generate
     assert File.exists?(@output)
+    
+    # We don't care if we redefine Mavlink modules while running the following test
+    Code.compiler_options(ignore_module_conflict: true)
 
+    # Confirm the list of modules generated from common.xml and its includes
     pairs =
       Enum.zip(
         [
