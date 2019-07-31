@@ -2,25 +2,49 @@ defmodule Mavlink.Mixfile do
   use Mix.Project
 
   def project do
-    [app: :mavlink,
-     version: "0.1.1",
-     elixir: "~> 1.9",
-     build_embedded: Mix.env == :prod,
-     start_permanent: Mix.env == :prod,
-     deps: deps(),
-     dialyzer: [plt_add_apps: [:mix, :xmerl]]]
+    [
+      app: :mavlink,
+      version: "0.2.0",
+      elixir: "~> 1.9",
+      start_permanent: Mix.env == :prod,
+      env: [system: 255, component: 250],
+      description: description(),
+      package: package(),
+      deps: deps(),
+      dialyzer: [plt_add_apps: [:mix, :xmerl]]
+    ]
   end
 
 
   def application do
-    [applications: [:logger]]
+    [
+      mod: {Mavlink.Application, []},
+      extra_applications: [:logger]
+    ]
   end
 
 
   defp deps do
     [
-      {:dialyxir, "~> 0.5.1", only: [:dev], runtime: false},
-      {:ex_doc, "~> 0.20.2", only: [:dev], runtime: false}
+      {:dialyzex, "~> 1.2.0", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.20.2", only: :dev, runtime: false}
     ]
   end
+
+  
+  defp description() do
+    "A Mix task to generate code from a MAVLink xml definition file, and an application that enables communication with other systems using the MAVLink 1.0 or 2.0 protocol over serial, UDP and TCP connections."
+  end
+  
+  
+  defp package() do
+    [
+      name: "mavlink",
+      files: ["lib", "mix.exs", "README.md", "LICENSE"],
+      licenses: ["MIT"],
+      links: %{"Github" => "https://github.com/robinhilliard/elixir-mavlink"},
+      maintainers: ["Robin Hilliard"]
+    ]
+  end
+  
 end
