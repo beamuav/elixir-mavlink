@@ -24,7 +24,7 @@ defmodule Mix.Tasks.Mavlink do
         message_code_fragments = get_message_code_fragments(messages, enums)
         unit_code_fragments = get_unit_code_fragments(messages)
         
-        File.write(output,
+        :ok = File.write(output,
         """
         defmodule Mavlink.Types do
         
@@ -134,12 +134,12 @@ defmodule Mix.Tasks.Mavlink do
         
           
           @doc "Mavlink version"
-          @spec mavlink_version() :: integer
+          @spec mavlink_version() :: #{version}
           def mavlink_version(), do: #{version}
           
           
           @doc "Mavlink dialect"
-          @spec mavlink_dialect() :: integer
+          @spec mavlink_dialect() :: #{dialect}
           def mavlink_dialect(), do: #{dialect}
           
           
@@ -212,7 +212,9 @@ defmodule Mix.Tasks.Mavlink do
           |> map(& &1[:describe_params])
           |> join("\n  "),
       
-        encode_spec: "@spec encode(Mavlink.Types.#{name}, :#{name}) :: integer",
+        encode_spec: "@spec encode(Mavlink.Types.#{name}, :#{name}) :: " <>
+          (map(entry_code_fragments, & &1[:value])
+          |> join(" | ")),
           
         encode: map(entry_code_fragments, & &1[:encode])
           |> join("\n  "),
@@ -255,7 +257,8 @@ defmodule Mix.Tasks.Mavlink do
               describe: ~s/def describe(:#{entry_name}), do: "#{escape(entry_description)}"/,
               describe_params: get_param_code_fragments(entry_name, entry_params),
               encode: ~s/def encode(:#{entry_name}, :#{enum_name}), do: #{entry_value_string}/,
-              decode: ~s/def decode(#{entry_value_string}, :#{enum_name}), do: :#{entry_name}/
+              decode: ~s/def decode(#{entry_value_string}, :#{enum_name}), do: :#{entry_name}/,
+              value: entry_value_string
             }
             | details
           ],
