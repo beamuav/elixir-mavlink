@@ -86,7 +86,7 @@ defmodule Mavlink.Utils do
   
   
   @doc "Helper function for messages to pack string fields"
-  @spec pack_string(String.t, integer) :: binary()
+  @spec pack_string(binary, non_neg_integer) :: binary
   def pack_string(s, ordinality) do
     s |> String.pad_trailing(ordinality - byte_size(s), <<0>>)
   end
