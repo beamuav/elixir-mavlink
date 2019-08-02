@@ -219,7 +219,9 @@ defmodule Mix.Tasks.Mavlink do
         encode: map(entry_code_fragments, & &1[:encode])
           |> join("\n  "),
       
-        decode_spec: "@spec decode(integer, :#{name}) :: Mavlink.Types.#{name}",
+        decode_spec: "@spec decode(" <>
+          (map(entry_code_fragments, & &1[:value])
+          |> join(" | ")) <> ", :#{name}) :: Mavlink.Types.#{name}",
         
         decode: map(entry_code_fragments, & &1[:decode])
           |> join("\n  ")
