@@ -193,11 +193,10 @@ defmodule Mix.Tasks.Mavlink do
     for enum <- enums do
       %{
         name: name,
-        description: description,
-        entries: entries
+        description: description
       } = enum
       
-      entry_code_fragments = get_entry_code_fragments(name, entries)
+      entry_code_fragments = get_entry_code_fragments(enum)
       
       %{
         type: ~s/@typedoc "#{description}"\n  / <>
@@ -231,8 +230,9 @@ defmodule Mix.Tasks.Mavlink do
   
   
   @type entry_detail :: %{name: String.t, describe: String.t, describe_params: String.t, encode: String.t, decode: String.t}
-  @spec get_entry_code_fragments(String.t, [Mavlink.Parser.entry_description]) :: [ entry_detail ]
-  defp get_entry_code_fragments(enum_name, entries) do
+  @spec get_entry_code_fragments(Mavlink.Parser.enum_description) :: [ entry_detail ]
+  defp get_entry_code_fragments(enum = %{name: enum_name, entries: entries}) do
+    bitmask? = looks_like_a_bitmask?(enum)
     {details, _} = reduce(
       entries,
       {[], 0},
@@ -245,13 +245,13 @@ defmodule Mix.Tasks.Mavlink do
         } = entry
         
         # Use provided value or continue monotonically from last value: in common.xml MAV_STATE uses this
-        {entry_value_string, next_value} = case entry_value do
+        {entry_value, next_value} = case entry_value do
           nil ->
-            {Integer.to_string(next_value), next_value + 1}
+            {next_value, next_value + 1}
           _ ->
-            {Integer.to_string(entry_value), entry_value + 1}
+            {entry_value, entry_value + 1}
         end
-        
+        entry_value_string = if bitmask?, do: "0b#{Integer.to_string(entry_value, 2)}", else: Integer.to_string(entry_value)
         {
           [
             %{
