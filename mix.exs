@@ -11,7 +11,8 @@ defmodule Mavlink.Mixfile do
       description: description(),
       package: package(),
       deps: deps(),
-      dialyzer: [plt_add_apps: [:mix, :xmerl]]
+      dialyzer: [plt_add_apps: [:mix, :xmerl]],
+      source_url: "https://github.com/robinhilliard/elixir-mavlink"
     ]
   end
 
