@@ -67,6 +67,40 @@ defmodule Mavlink.Parser do
   end
   
   
+  def parse_mavlink_xml(path, paths) do
+    case Map.has_key?(paths, path) do
+      true ->
+        paths   # Don't include a file twice
+    
+      false ->
+        case :xmerl_scan.file(path) do
+          {defs, []} ->
+            # Recursively add new includes to paths
+            paths = reduce(
+              :xmerl_xpath.string('/mavlink/include/text()', defs) |> map(&extract_text/1),
+              paths,
+              fn (next_include, acc) ->
+                include_path = Path.dirname(path) <> "/" <> next_include
+                parse_mavlink_xml(include_path, acc)
+              end
+            )
+            
+            # And add ourselves to paths if we're not already there through a circular dependency
+            version = :xmerl_xpath.string('/mavlink/version/text()', defs) |> extract_text |> nil_to_zero_string
+            Map.put_new(paths, path, %{
+              version:  version,
+              dialect:  :xmerl_xpath.string('/mavlink/dialect/text()', defs) |> extract_text |> nil_to_zero_string,
+              enums:    (for enum <- :xmerl_xpath.string('/mavlink/enums/enum', defs), do: parse_enum(enum)),
+              messages: (for msg <- :xmerl_xpath.string('/mavlink/messages/message', defs), do: parse_message(msg, version))
+            })
+            
+          {:error, :enoent} ->
+            Map.put(paths, path, {:error, "File '#{path}' does not exist"})
+        end
+    end
+  end
+  
+  
   # See https://mavlink.io/en/guide/xml_schema.html, mavparse.py merge_enums() and
   # check_duplicates() for proper validation. If making changes to definitions test
   # first with mavgen for now.
@@ -109,40 +143,6 @@ defmodule Mavlink.Parser do
     end
     
     sort_by(only_in_a ++ in_a_and_b ++ only_in_b, & &1.name)
-  end
-  
-  
-  def parse_mavlink_xml(path, paths) do
-    case Map.has_key?(paths, path) do
-      true ->
-        paths   # Don't include a file twice
-    
-      false ->
-        case :xmerl_scan.file(path) do
-          {defs, []} ->
-            # Recursively add new includes to paths
-            paths = reduce(
-              :xmerl_xpath.string('/mavlink/include/text()', defs) |> map(&extract_text/1),
-              paths,
-              fn (next_include, acc) ->
-                include_path = Path.dirname(path) <> "/" <> next_include
-                parse_mavlink_xml(include_path, acc)
-              end
-            )
-            
-            # And add ourselves to paths if we're not already there through a circular dependency
-            version = :xmerl_xpath.string('/mavlink/version/text()', defs) |> extract_text |> nil_to_zero_string
-            Map.put_new(paths, path, %{
-              version:  version,
-              dialect:  :xmerl_xpath.string('/mavlink/dialect/text()', defs) |> extract_text |> nil_to_zero_string,
-              enums:    (for enum <- :xmerl_xpath.string('/mavlink/enums/enum', defs), do: parse_enum(enum)),
-              messages: (for msg <- :xmerl_xpath.string('/mavlink/messages/message', defs), do: parse_message(msg, version))
-            })
-            
-          {:error, :enoent} ->
-            Map.put(paths, path, {:error, "File '#{path}' does not exist"})
-        end
-    end
   end
   
   
