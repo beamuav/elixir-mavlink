@@ -7,7 +7,6 @@ defmodule Mavlink.Mixfile do
       version: "0.2.0",
       elixir: "~> 1.9",
       start_permanent: Mix.env == :prod,
-      env: [system: 255, component: 250],
       description: description(),
       package: package(),
       deps: deps(),
@@ -19,6 +18,7 @@ defmodule Mavlink.Mixfile do
 
   def application do
     [
+      env: [system: 255, component: 250],
       mod: {Mavlink.Application, []},
       extra_applications: [:logger]
     ]
