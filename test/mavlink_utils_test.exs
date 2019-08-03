@@ -48,4 +48,12 @@ defmodule Mavlink.Test.Utils do
     |> x25_crc([25])
     |> eight_bit_checksum() == 217 # Checked against mavgen
   end
+  
+  test "parse ip address" do
+    assert parse_ip_address("192.168.0.10") == {192, 168, 0, 10}
+    assert parse_ip_address("127.0.0.1") == {127, 0, 0, 1}
+    assert parse_ip_address("Burt") == {:error, :invalid_ip_address}
+    assert parse_ip_address("192.168.1000.1") == {:error, :invalid_ip_address}
+  end
+  
 end
