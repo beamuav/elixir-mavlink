@@ -39,15 +39,15 @@ defmodule Mavlink.Utils do
   end
   
   
+  def eight_bit_checksum(value) do
+    (value &&& 0xFF) ^^^ (value >>> 8)
+  end
+  
+  
   @doc """
   Calculate an x25 checksum of a list or binary based on
   pymavlink mavcrc.x25crc
   """
-  
-  
-  def eight_bit_checksum(value) do
-    (value &&& 0xFF) ^^^ (value >>> 8)
-  end
   
   
   @spec x25_crc([ ] | binary()) :: pos_integer
@@ -119,6 +119,34 @@ defmodule Mavlink.Utils do
         unpack_bitmask(value, enum, decode, MapSet.put(acc, entry), pos <<< 1)
       {_, false} ->
         unpack_bitmask(value, enum, decode, acc, pos <<< 1)
+    end
+  end
+  
+  
+  @doc "Parse an ip address string into a tuple"
+  def parse_ip_address(address) when is_binary(address) do
+    parse_ip_address(String.split(address, "."), [], 0)
+  end
+  
+  def parse_ip_address([], address, 4) do
+    List.to_tuple(reverse address)
+  end
+  
+  def parse_ip_address([], _, _) do
+    {:error, :invalid_ip_address}
+  end
+  
+  def parse_ip_address([component | rest], address, count) do
+    case Integer.parse(component) do
+      :error ->
+        {:error, :invalid_ip_address}
+      {n, _} ->
+        cond do
+          n >= 0 and n <= 255 ->
+            parse_ip_address(rest, [n | address], count + 1)
+          true ->
+            {:error, :invalid_ip_address}
+        end
     end
   end
 
