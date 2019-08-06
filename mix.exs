@@ -27,6 +27,7 @@ defmodule Mavlink.Mixfile do
 
   defp deps do
     [
+      {:circuits_uart, "~> 1.3"},
       {:dialyzex, "~> 1.2.0", only: :dev, runtime: false},
       {:ex_doc, "~> 0.20.2", only: :dev, runtime: false}
     ]
