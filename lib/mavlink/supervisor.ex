@@ -12,7 +12,7 @@ defmodule Mavlink.Supervisor do
   def init(_) do
     children = [
       {
-        Mavlink.Server,
+        Mavlink.Router,
         %{
             system: Application.get_env(:mavlink, :system),
             component: Application.get_env(:mavlink, :component)
