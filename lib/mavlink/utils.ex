@@ -149,5 +149,17 @@ defmodule Mavlink.Utils do
         end
     end
   end
+  
+  
+  def parse_positive_integer(port) when is_binary(port) do
+    case Integer.parse(port) do
+      :error ->
+        :error
+      {n, _} when n > 0 ->
+        n
+      _ ->
+        :error
+    end
+  end
 
 end
