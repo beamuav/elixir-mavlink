@@ -289,10 +289,9 @@ defmodule Mavlink.Parser do
   end
   
   
-  # Can't spec this without causing dialyzer "nil can't match binary" - Erlang types?
-  defp extract_text([xmlText(value: value)]), do: clean_string(value)
+  # TODO Can't spec this without causing dialyzer "nil can't match binary" - Erlang types?
+  defp extract_text([xml]), do: extract_text(xml)
   defp extract_text(xmlText(value: value)), do: clean_string(value)
-  defp extract_text([xmlAttribute(value: value)]), do: clean_string(value)
   defp extract_text(xmlAttribute(value: value)), do: clean_string(value)
   defp extract_text(_), do: nil
   
