@@ -1,4 +1,4 @@
-defmodule Mavlink.Application do
+defmodule MAVLink.Application do
   @moduledoc false
   
   
@@ -6,7 +6,7 @@ defmodule Mavlink.Application do
   
   
   def start(_, _) do
-    children = [Mavlink.Supervisor]
+    children = [MAVLink.Supervisor]
     Supervisor.start_link(children, strategy: :one_for_one)
   end
   
