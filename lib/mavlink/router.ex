@@ -16,7 +16,7 @@ defmodule MAVLink.Router do
   use GenServer
   
   alias Circuits.UART, as: UART
-  import MAVLink.Utils, only: [parse_ip_address: 1, parse_positive_integer: 1]
+  import MAVLink.Utils, only: [parse_ip_address: 1, parse_positive_integer: 1, x25_crc: 1, x25_crc: 2]
   
   
   # Client API
@@ -30,7 +30,7 @@ defmodule MAVLink.Router do
   end
   
   
-  @ doc """
+  @doc """
   Not recommended to create connections at runtime. You should set
   connection strings through config.exs so that the supervisor can
   re-establish connections if the router crashes.
@@ -78,7 +78,8 @@ defmodule MAVLink.Router do
           }
         ),
         fn connection_string, acc_state ->
-          String.split(connection_string, [":", ","]) |> do_connect(acc_state)
+          {:reply, :ok, next_acc_state} = String.split(connection_string, [":", ","]) |> do_connect(acc_state)
+          next_acc_state
         end
       )
     }
@@ -102,58 +103,41 @@ defmodule MAVLink.Router do
   """
   @impl true
   def handle_info({:udp, _sock, addr, port, raw=
-    <<0xfe,
+    <<0xfe, # MAVLink version 1
       payload_length::unsigned-integer-size(8),
       sequence_number::unsigned-integer-size(8),
-      system_id::unsigned-integer-size(8),
-      component_id::unsigned-integer-size(8),
+      source_system_id::unsigned-integer-size(8),
+      source_component_id::unsigned-integer-size(8),
       message_id::unsigned-integer-size(8),
       payload::binary-size(payload_length),
       checksum::little-unsigned-integer-size(16)>>}, state) do
 
-    {:noreply, validate_and_process_message(
-        1,
-        {:udp, addr, port},
-        raw,
-        payload_length,
-        sequence_number,
-        system_id,
-        component_id,
-        message_id,
-        payload,
-        checksum,
-        state)}
+    {:noreply, state |> validate_and_route_message_frame(
+        1, {:udp, addr, port}, raw, payload_length, sequence_number,
+        source_system_id, source_component_id, message_id,
+        payload, checksum)}
   end
   
   def handle_info({:udp, _sock, addr, port, raw=
-    <<0xfd,
+    <<0xfd, # MAVLink version 2
       payload_length::unsigned-integer-size(8),
       0::unsigned-integer-size(8),   # TODO Rejecting all incompatible flags for now
       _compatible_flags::unsigned-integer-size(8),
       sequence_number::unsigned-integer-size(8),
-      system_id::unsigned-integer-size(8),
-      component_id::unsigned-integer-size(8),
+      source_system_id::unsigned-integer-size(8),
+      source_component_id::unsigned-integer-size(8),
       message_id::little-unsigned-integer-size(24),
       payload::binary-size(payload_length),
       checksum::little-unsigned-integer-size(16)>>}, state) do
 
-    {:noreply, validate_and_process_message(
-        2,
-        {:udp, addr, port},
-        raw,
-        payload_length,
-        sequence_number,
-        system_id,
-        component_id,
-        message_id,
-        payload,
-        checksum,
-        state)}
+    {:noreply, state |> validate_and_route_message_frame(
+        2, {:udp, addr, port}, raw, payload_length, sequence_number,
+        source_system_id, source_component_id, message_id,
+        payload, checksum)}
   end
   
   def handle_info({:udp, _sock, _addr, _port, _}, state) do
-    IO.puts("Bad Packet")
-    # TODO update statistics, or only with sequence numbers?
+    # Ignore packets we don't recognise
     {:noreply, state}
   end
   
@@ -188,8 +172,6 @@ defmodule MAVLink.Router do
                 {:serial, port},
                 {next_free_uart, <<>>})
             }
-
-            
           error = {:error, _} ->
             {:reply, error, state}
         end
@@ -216,7 +198,7 @@ defmodule MAVLink.Router do
     {:ok, socket} = :gen_udp.open(port, [:binary, ip: address, active: :true])
     {:reply,
       :ok,
-      state |> put_in([:conn_details, {:udp, address, port}], socket)
+      put_in(state, [:conn_details, {:udp, address, port}], socket)
     }
   end
   
@@ -225,21 +207,103 @@ defmodule MAVLink.Router do
   end
   
   
-  defp validate_and_process_message(
-        version,
-        conn_key,
-        raw,
-        payload_length,
-        sequence_number,
-        system_id,
-        component_id,
-        message_id,
-        payload,
-        checksum,
-        state) do
-    IO.puts "#{sequence_number}: Mavlink #{version} message #{message_id}"
-    # TODO Up to here
-    state
+  @doc """
+  Use callbacks from generated MAVLink dialect module to ensure
+  message checksum matches, restore trailing zero bytes if truncation
+  occurred and unpack the message payload. See:
+  
+    https://mavlink.io/en/guide/serialization.html
+    
+  for purpose of this and following functions.
+  """
+  defp validate_and_route_message_frame(state = %{dialect: dialect},
+        version, conn_key, raw, payload_length, sequence_number,
+        source_system_id, source_component_id, message_id,
+        payload, checksum) do
+    case apply(dialect, :msg_crc_size, [message_id]) do
+      {:ok, crc, expected_length} ->
+        case checksum == (
+               :binary.bin_to_list(
+                  raw,
+                  {1, payload_length + elem({0, 5, 9}, version)})
+                |> x25_crc()
+                |> x25_crc([crc])) do
+          true ->
+            payload_truncated_length = 8 * (expected_length - payload_length)
+            case apply(dialect, :unpack, [
+                   message_id,
+                   payload <> <<0::size(payload_truncated_length)>>]) do
+              {:ok, message} ->
+                state
+                |> route_message_remote(message, version, conn_key, raw)
+                |> route_message_local(message, source_system_id, source_component_id,
+                     version, conn_key)
+                |> update_route_info(conn_key, source_system_id, source_component_id,
+                     sequence_number, version, conn_key)
+              _ ->
+                # Couldn't unpack message
+                state
+            end
+          _ ->
+            # Checksum didn't match
+            state
+        end
+      {:error, _} ->
+        # TODO Message id not in dialect MAVLink says we should broadcast anyway but won't it bounce forever?
+        state
+    end
+  end
+  
+  
+  @doc """
+  Systems should forward messages to another link if any of these conditions hold:
+  
+  - It is a broadcast message (target_system field omitted or zero).
+  - The target_system does not match the system id and the system knows the link of
+    the target system (i.e. it has previously seen a message from target_system on
+    the link).
+  - The target_system matches its system id and has a target_component field, and the
+    system has seen a message from the target_system/target_component combination on
+    the link.
+  - Non-broadcast messages must only be sent (or forwarded) to known destinations
+    (i.e. a system must previously have received a message from the target
+    system/component).
+  """
+  defp route_message_remote(state, message, version, conn_key, raw) do
+    state # TODO
+  end
+  
+  
+  @doc """
+  Forward a message to a subscribing Elixir process.
+  
+  Systems/components should process a message locally if any of these conditions hold:
+
+  - It is a broadcast message (target_system field omitted or zero).
+  - The target_system matches its system id and target_component is broadcast
+    (target_component omitted or zero).
+  - The target_system matches its system id and has the component's target_component
+  - The target_system matches its system id and the component is unknown
+    (i.e. this component has not seen any messages on any link that have the message's
+    target_system/target_component).
+  """
+  defp route_message_local(state, message, source_system_id, source_component_id,
+       version, conn_key) do
+    state # TODO
+  end
+  
+  
+  @doc """
+  - Map system/component ids to connections on which they have been seen
+  - Record skipped message sequence numbers to monitor connection health
+  - Systems should also check for SYSTEM_TIME messages with a decrease in time_boot_ms,
+    as this indicates that the system has rebooted. In this case it should clear stored
+    routing information (and might perform other actions that are useful following a
+    reboot - e.g. re-fetching parameters and home position etc.).
+  """
+  defp update_route_info(state, conn_key, source_system_id, source_component_id,
+         sequence_number, version, conn_key) do
+    state # TODO
   end
   
 end
