@@ -18,7 +18,12 @@ defmodule MAVLink.Mixfile do
 
   def application do
     [
-      env: [system: 255, component: 250],
+      env: [
+        dialect: nil,
+        system: 255,
+        component: 250,
+        connections: []
+      ],
       mod: {MAVLink.Application, []},
       extra_applications: [:logger]
     ]
