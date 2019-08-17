@@ -1,6 +1,6 @@
-defmodule Mavlink.Test.Parser do
+defmodule MAVLink.Test.Parser do
   use ExUnit.Case
-  import Mavlink.Parser
+  import MAVLink.Parser
 
   
   @root_dir File.cwd!
