@@ -1,6 +1,6 @@
-defmodule Mavlink.Test.Utils do
+defmodule MAVLink.Test.Utils do
   use ExUnit.Case
-  import Mavlink.Utils
+  import MAVLink.Utils
  
   test "x25 empty list" do
     assert x25_crc([]) == 0xffff
