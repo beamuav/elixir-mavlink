@@ -1,18 +1,21 @@
-defmodule Mavlink.Router do
+defmodule MAVLink.Router do
   @moduledoc false
   
   
   use GenServer
   
   alias Circuits.UART, as: UART
-  import Mavlink.Utils, only: [parse_ip_address: 1, parse_positive_integer: 1]
+  import MAVLink.Utils, only: [parse_ip_address: 1, parse_positive_integer: 1]
   
   
   # Client API
   
   
   def start_link(state, opts \\ []) do
-    GenServer.start_link(__MODULE__, state, [{:name, __MODULE__} | opts])
+    GenServer.start_link(
+      __MODULE__,
+      state,
+      [{:name, :"MAVLink.Router"} | opts])
   end
   
   
@@ -55,12 +58,11 @@ defmodule Mavlink.Router do
       {_, :error} ->
         {:reply, {:error, :invalid_baud_rate}, state}
       {true, b} ->
-        {:ok, pid} = UART.start_link # TODO move to supervisor
-        :ok = UART.open(pid, port, speed: b, active: true)
+        :ok = UART.open(UART, port, speed: b, active: true)
         {:reply,
           :ok,
           %{state | connections: %{
-            state.connections | {:serial, port} => {pid, <<>>}}
+            state.connections | {:serial, port} => <<>>}
           }
         }
     end
