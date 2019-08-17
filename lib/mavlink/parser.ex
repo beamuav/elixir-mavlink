@@ -1,4 +1,4 @@
-defmodule Mavlink.Parser do
+defmodule MAVLink.Parser do
   @moduledoc """
   Parse a mavlink xml file into an idiomatic Elixir representation:
   
