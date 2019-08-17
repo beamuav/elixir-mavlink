@@ -1,6 +1,6 @@
-defmodule Mavlink.Utils do
+defmodule MAVLink.Utils do
   @moduledoc ~s"""
-  Mavlink support functions used during code generation and runtime
+  MAVLink support functions used during code generation and runtime
   Parts of this module are ported from corresponding implementations
   in mavutils.py
   """
@@ -81,7 +81,7 @@ defmodule Mavlink.Utils do
   
   
   @doc "Helper function for messages to pack bitmask fields"
-  @spec pack_bitmask(MapSet.t(Mavlink.Types.enum_value), Mavlink.Types.enum_type, (Mavlink.Types.enum_value, Mavlink.Types.enum_type -> integer)) :: integer
+  @spec pack_bitmask(MapSet.t(MAVLink.Types.enum_value), MAVLink.Types.enum_type, (MAVLink.Types.enum_value, MAVLink.Types.enum_type -> integer)) :: integer
   def pack_bitmask(flag_set, enum, encode), do: reduce(flag_set, 0, & &2 ^^^ encode.(&1, enum))
   
   
@@ -110,7 +110,7 @@ defmodule Mavlink.Utils do
   
   
   @doc "Helper function for decode() to unpack bitmask fields"
-  @spec unpack_bitmask(integer, Mavlink.Types.enum_type, (integer, Mavlink.Types.enum_type -> Mavlink.Types.enum_value), MapSet.t, integer) :: MapSet.t(Mavlink.Types.enum_value)
+  @spec unpack_bitmask(integer, MAVLink.Types.enum_type, (integer, MAVLink.Types.enum_type -> MAVLink.Types.enum_value), MapSet.t, integer) :: MapSet.t(MAVLink.Types.enum_value)
   def unpack_bitmask(value, enum, decode, acc \\ MapSet.new(), pos \\ 1) do
     case {decode.(pos, enum), (value &&& pos) != 0} do
       {not_atom, _} when not is_atom(not_atom) ->
