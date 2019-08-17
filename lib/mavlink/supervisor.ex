@@ -1,4 +1,4 @@
-defmodule Mavlink.Supervisor do
+defmodule MAVLink.Supervisor do
   @moduledoc false
   
   use Supervisor
@@ -6,20 +6,43 @@ defmodule Mavlink.Supervisor do
 
   
   def start_link(_) do
-    Supervisor.start_link(__MODULE__, [], name: __MODULE__)
+    Supervisor.start_link(__MODULE__, [], name: :"MAVLink.Supervisor")
   end
 
+  @impl true
   def init(_) do
     children = [
+      %{
+        id: MAVLink_UART_1,
+        start: {Circuits.UART, :start_link, [[name: :"MAVLink.UART.1"]]}
+      },
+      %{
+        id: MAVLink_UART_2,
+        start: {Circuits.UART, :start_link, [[name: :"MAVLink.UART.2"]]}
+      },
+      %{
+        id: MAVLink_UART_3,
+        start: {Circuits.UART, :start_link, [[name: :"MAVLink.UART.3"]]}
+      },
+      %{
+        id: MAVLink_UART_4,
+        start: {Circuits.UART, :start_link, [[name: :"MAVLink.UART.4"]]}
+      },
       {
-        Mavlink.Router,
+        MAVLink.Router,
         %{
-            system: Application.get_env(:mavlink, :system),
-            component: Application.get_env(:mavlink, :component)
-         }
+          system: Application.get_env(:MAVLink, :system),
+          component: Application.get_env(:MAVLink, :component),
+          uarts: [
+            :"MAVLink.UART.1",
+            :"MAVLink.UART.2",
+            :"MAVLink.UART.3",
+            :"MAVLink.UART.4"
+          ]
+        }
       }
     ]
 
-    Supervisor.init(children, strategy: :one_for_one)
+    Supervisor.init(children, strategy: :one_for_all)
   end
 end
