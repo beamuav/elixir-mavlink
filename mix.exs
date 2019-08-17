@@ -1,4 +1,4 @@
-defmodule Mavlink.Mixfile do
+defmodule MAVLink.Mixfile do
   use Mix.Project
 
   def project do
@@ -19,7 +19,7 @@ defmodule Mavlink.Mixfile do
   def application do
     [
       env: [system: 255, component: 250],
-      mod: {Mavlink.Application, []},
+      mod: {MAVLink.Application, []},
       extra_applications: [:logger]
     ]
   end
