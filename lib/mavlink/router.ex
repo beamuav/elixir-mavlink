@@ -15,12 +15,37 @@ defmodule MAVLink.Router do
   
   use GenServer
   
-  alias Circuits.UART, as: UART
   import MAVLink.Utils, only: [parse_ip_address: 1, parse_positive_integer: 1, x25_crc: 1, x25_crc: 2]
+  import Map, only: [get: 3, fetch!: 2]
+  import Enum, only: [reduce: 3]
+  
+  
+  # Router state
+
+  defstruct [
+    dialect: nil,             # Generated dialect module
+    system_id: 25,            # Default to ground station
+    component_id: 250,
+    connection_strings: [],   # Connection descriptions from user
+    connections: %{},         # MAVLink.UDP|TCP|Serial_Connection
+    systems: %{},             # MAVLink {system_id, component_id} addresses
+    subscriptions: %{} ,      # Elixir processes
+    uarts: []                 # Circuit.UART Pool
+  ]
+  @type mavlink_address :: MAVLink.Types.mavlink_address  # Can't used qualified type as map key
+  @type t :: %MAVLink.Router{
+               dialect: module | nil,
+               system_id: non_neg_integer,
+               component_id: non_neg_integer,
+               connection_strings: [ String.t ],
+               connections: %{tuple: MAVLink.Types.connection},
+               systems: %{mavlink_address: MAVLink.Router.System},
+               subscriptions: %{},
+               uarts: [pid]
+             }
   
   
   # Client API
-  
   
   def start_link(state, opts \\ []) do
     # TODO restore state from ERTS?
@@ -31,71 +56,19 @@ defmodule MAVLink.Router do
   end
   
   
-  @doc """
-  Not recommended to create connections at runtime. You should set
-  connection strings through config.exs so that the supervisor can
-  re-establish connections if the router crashes.
-  """
-  def connect(connection_string) do
-    GenServer.call __MODULE__, {:connect, connection_string}
-  end
-  
-  
   # Callbacks
-
-  # TODO refactor init, lacks elegance...
   
   @impl true
-  def init(state = %{dialect: dialect, connection_strings: []}) do
-    if dialect == nil do
-      IO.puts "WARNING: No MAVLink dialect module specified in config.exs."
-    end
-    {
-      :ok,
-      Map.merge(
-        state,
-        %{
-          connections: %{},      # serial or network connection
-          targets: %{},           # systems and components
-          subscriptions: %{}      # local PIDs
-        }
-      )
-    }
+  def init(%{dialect: nil}) do
+    {:error, :no_mavlink_dialect_set}
   end
   
-  def init(state = %{dialect: dialect, connection_strings: [_ | _]}) do
-    if dialect == nil do
-      IO.puts "WARNING: No MAVLink dialect module specified in config.exs."
-    end
-    {
-      :ok,
-      state.connection_strings |> Enum.reduce(
-        Map.merge(
-          state,
-          %{
-            connections: %{},      # serial or network connection
-            targets: %{},           # systems and components
-            subscriptions: %{}      # local PIDs
-          }
-        ),
-        fn connection_string, acc_state ->
-          {:reply, :ok, next_acc_state} = String.split(connection_string, [":", ","]) |> do_connect(acc_state)
-          next_acc_state
-        end
-      )
-    }
+  def init(state = %{connection_strings: []}) do
+    {:ok, struct(MAVLink.Router, state)}
   end
   
-  
-  @impl true
-  def handle_call({:connect, connection_string}, _from, state) do
-    String.split(connection_string, [":", ","]) |> do_connect(state)
-  end
-
-  
-  @impl true
-  def handle_cast(_msg, state) do
-    {:noreply, state}
+  def init(state = %{connection_strings: connection_strings = [_ | _]}) do
+    {:ok, reduce(connection_strings, struct(MAVLink.Router, state), &connect/2)}
   end
   
   
@@ -103,109 +76,11 @@ defmodule MAVLink.Router do
   Respond to incoming messages from connections
   """
   @impl true
-  def handle_info({:udp, _sock, addr, port, raw=
-    <<0xfe, # MAVLink version 1
-      payload_length::unsigned-integer-size(8),
-      sequence_number::unsigned-integer-size(8),
-      source_system_id::unsigned-integer-size(8),
-      source_component_id::unsigned-integer-size(8),
-      message_id::unsigned-integer-size(8),
-      payload::binary-size(payload_length),
-      checksum::little-unsigned-integer-size(16)>>}, state) do
-
-    {:noreply, state |> validate_and_route_message_frame(
-        1, {:udp, addr, port}, raw, payload_length, sequence_number,
-        source_system_id, source_component_id, message_id,
-        payload, checksum)}
-  end
+  def handle_info(message = {:udp, _, _, _, _}, state), do: MAVLink.UDPConnection.handle_info(message, state)
+  def handle_info(message = {:tcp, _, _, _, _}, state), do: MAVLink.TCPConnection.handle_info(message, state)
+  def handle_info(message = {:serial, _, _, _, _}, state), do: MAVLink.SerialConnection.handle_info(message, state)
+  def handle_info(_, state), do: {:noreply, state}
   
-  def handle_info({:udp, _sock, addr, port, raw=
-    <<0xfd, # MAVLink version 2
-      payload_length::unsigned-integer-size(8),
-      0::unsigned-integer-size(8),   # TODO Rejecting all incompatible flags for now
-      _compatible_flags::unsigned-integer-size(8),
-      sequence_number::unsigned-integer-size(8),
-      source_system_id::unsigned-integer-size(8),
-      source_component_id::unsigned-integer-size(8),
-      message_id::little-unsigned-integer-size(24),
-      payload::binary-size(payload_length),
-      checksum::little-unsigned-integer-size(16)>>}, state) do
-
-    {:noreply, state |> validate_and_route_message_frame(
-        2, {:udp, addr, port}, raw, payload_length, sequence_number,
-        source_system_id, source_component_id, message_id,
-        payload, checksum)}
-  end
-  
-  def handle_info({:udp, _sock, _addr, _port, _}, state) do
-    # Ignore packets we don't recognise
-    {:noreply, state}
-  end
-  
-  # TODO TCP and serial (will need to consume up to marker in buffer)
-  
-  
-  # Helpers
-  
-  
-  defp do_connect(["serial", port], state) do
-    do_connect(["serial", port, "9600"], state)
-  end
-  
-  defp do_connect(["serial", _, _], state = %{uarts: []}) do
-    {:reply, {:error, :no_free_uarts}, state}
-  end
-  
-  defp do_connect(["serial", port, baud], state = %{uarts: [next_free_uart | _free_uarts]}) do
-    attached_ports = UART.enumerate()
-    case {Map.has_key?(attached_ports, port), parse_positive_integer(baud)} do
-      {false, _} ->
-        {:reply, {:error, :port_not_attached}, state}
-      {_, :error} ->
-        {:reply, {:error, :invalid_baud_rate}, state}
-      {true, parsed_baud} ->
-        case UART.open(next_free_uart, port, speed: parsed_baud, active: true) do
-          :ok ->
-            {
-              :reply,
-              :ok,
-              state.connections |> Map.put_new(
-                {:serial, port},
-                {next_free_uart, <<>>})
-            }
-          error = {:error, _} ->
-            {:reply, error, state}
-        end
-    end
-  end
-  
-  defp do_connect([protocol, address, port], state) do
-    case {parse_ip_address(address), parse_positive_integer(port)} do
-      {{:error, :invalid_ip_address}, _}->
-        {:reply, {:error, :invalid_ip_address}, state}
-      {_, :error} ->
-        {:reply, {:error, :invalid_port}, state}
-      {ip, p} ->
-        do_connect_network(protocol, ip, p, state)
-    end
-  end
-  
-  defp do_connect(_, state) do
-    {:reply, {:error, :invalid_protocol}, state}
-  end
-  
-  
-  defp do_connect_network("udp", address, port, state) do
-    {:ok, socket} = :gen_udp.open(port, [:binary, ip: address, active: :true])
-    {:reply,
-      :ok,
-      state |> put_in([:connections, {:udp, address, port}], socket)
-    }
-  end
-  
-  defp do_connect_network("tcp", _address, _port, state) do
-    {:reply, "tcp not implemented", state} # TODO
-  end
   
   #  Use callbacks from generated MAVLink dialect module to ensure
   #  message checksum matches, restore trailing zero bytes if truncation
@@ -214,16 +89,17 @@ defmodule MAVLink.Router do
   #    https://mavlink.io/en/guide/serialization.html
   #
   #  for purpose of this and following functions.
-  defp validate_and_route_message_frame(state = %{dialect: dialect},
-        version, connection_key, raw, payload_length, sequence_number,
-        source_system_id, source_component_id, message_id,
-        payload, checksum) do
+  def validate_and_route_message_frame(
+        state = %MAVLink.Router{dialect: dialect},
+        receiving_connection_key, message_protocol_info,
+        mavlink_version, sequence_number, source_system_id, source_component_id,
+        message_id, payload_length, payload, checksum, raw) do
     case apply(dialect, :msg_crc_size, [message_id]) do
       {:ok, crc, expected_length} ->
         case checksum == (
                :binary.bin_to_list(
                   raw,
-                  {1, payload_length + elem({0, 5, 9}, version)})
+                  {1, payload_length + elem({0, 5, 9}, mavlink_version)})
                 |> x25_crc()
                 |> x25_crc([crc])) do
           true ->
@@ -233,11 +109,17 @@ defmodule MAVLink.Router do
                    payload <> <<0::size(payload_truncated_length)>>]) do
               {:ok, message} ->
                 state
-                |> route_message_remote(message, version, connection_key, raw)
-                |> route_message_local(message, source_system_id, source_component_id,
-                     version, connection_key)
-                |> update_route_info(connection_key, source_system_id, source_component_id,
-                     sequence_number, version, connection_key)
+                |> route_message_remote(
+                     receiving_connection_key,
+                     mavlink_version,
+                     message, raw)
+                |> route_message_local(
+                     source_system_id, source_component_id,
+                     message_id, message)
+                |> update_route_info(
+                     receiving_connection_key, message_protocol_info,
+                     mavlink_version, sequence_number, source_system_id, source_component_id,
+                     message)
               _ ->
                 # Couldn't unpack message
                 state
@@ -249,6 +131,30 @@ defmodule MAVLink.Router do
       {:error, _} ->
         # TODO Message id not in dialect MAVLink says we should broadcast anyway but won't it bounce forever?
         state
+    end
+  end
+  
+  
+  # Helpers
+  
+  defp connect(connection_string, state) when is_binary(connection_string) do
+    connect(String.split(connection_string, [":", ","]), state)
+  end
+  
+  defp connect(tokens = ["serial" | _], state), do: MAVLink.SerialConnection.connect(tokens, state)
+  defp connect(tokens = ["udp" | _], state), do: MAVLink.UDPConnection.connect(validate_address_and_port(tokens), state)
+  defp connect(tokens = ["tcp" | _], state), do: MAVLink.TCPConnection.connect(validate_address_and_port(tokens), state)
+  defp connect([invalid_protocol | _], _), do: raise ArgumentError, message: "invalid protocol #{invalid_protocol}"
+
+  
+  defp validate_address_and_port([protocol, address, port]) do
+    case {parse_ip_address(address), parse_positive_integer(port)} do
+      {{:error, :invalid_ip_address}, _}->
+        raise ArgumentError, message: "invalid ip address #{address}"
+      {_, :error} ->
+        raise ArgumentError, message: "invalid port #{port}"
+      {parsed_address, parsed_port} ->
+        [protocol, parsed_address, parsed_port]
     end
   end
   
@@ -265,7 +171,11 @@ defmodule MAVLink.Router do
   #  - Non-broadcast messages must only be sent (or forwarded) to known destinations
   #    (i.e. a system must previously have received a message from the target
   #    system/component).
-  defp route_message_remote(state, message, version, connection_key, raw) do
+  defp route_message_remote(
+         state,
+         _receiving_connection_key,
+         _mavlink_version,
+         _message, _raw) do
     state # TODO
   end
   
@@ -281,8 +191,10 @@ defmodule MAVLink.Router do
   #  - The target_system matches its system id and the component is unknown
   #    (i.e. this component has not seen any messages on any link that have the message's
   #    target_system/target_component).
-  defp route_message_local(state, message, source_system_id, source_component_id,
-       version, connection_key) do
+  defp route_message_local(
+         state,
+         _source_system_id, _source_component_id,
+         _message_id, _message) do
     state # TODO
   end
   
@@ -293,9 +205,16 @@ defmodule MAVLink.Router do
   #    as this indicates that the system has rebooted. In this case it should clear stored
   #    routing information (and might perform other actions that are useful following a
   #    reboot - e.g. re-fetching parameters and home position etc.).
-  defp update_route_info(state, connection_key, source_system_id, source_component_id,
-         sequence_number, version, connection_key) do
-    state # TODO
+  defp update_route_info(
+         state,
+         connection_key, _message_protocol_info,
+         _mavlink_version, _sequence_number, source_system_id, source_component_id,
+         _message) do
+    _connection = state.connections |> fetch!(connection_key) # We just received a message on this connection
+    _system = get(state.systems,
+      {source_system_id, source_component_id},
+      %{}) # TODO System
+    state
   end
   
 end
