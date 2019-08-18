@@ -30,7 +30,3 @@ computers and ground stations for our team entry in the
 A Mix task to generate code from a MAVLink xml definition file, and an 
 application that enables communication with other systems using the 
 MAVLink 1.0 or 2.0 protocol over serial, UDP and TCP connections.
-
-```
-mix build
-```

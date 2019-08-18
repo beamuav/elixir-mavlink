@@ -6,7 +6,11 @@ defmodule MAVLink.Application do
   
   
   def start(_, _) do
-    children = [MAVLink.Supervisor]
+    children = case Mix.env do
+      :test -> []
+      _ -> [MAVLink.Supervisor]
+    end
+
     Supervisor.start_link(children, strategy: :one_for_one)
   end
   

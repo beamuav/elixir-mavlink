@@ -10,6 +10,7 @@ defmodule MAVLink.Mixfile do
       description: description(),
       package: package(),
       deps: deps(),
+      compilers: Mix.compilers ++ [:mavlink],
       dialyzer: [plt_add_apps: [:mix, :xmerl]],
       source_url: "https://github.com/beamuav/elixir-mavlink"
     ]
@@ -34,7 +35,8 @@ defmodule MAVLink.Mixfile do
     [
       {:circuits_uart, "~> 1.3"},
       {:dialyzex, "~> 1.2.0", only: :dev, runtime: false},
-      {:ex_doc, "~> 0.20.2", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.20.2", only: :dev, runtime: false},
+      {:httpoison, "~> 1.5.1"}
     ]
   end
 

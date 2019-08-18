@@ -23,4 +23,5 @@ erl_crash.dump
 /test/output/*
 
 # Don't include generated files
-lib/mavlink/dialect/*
+lib/mavlink/dialect/*.ex
+message_definitions/**/*.xml

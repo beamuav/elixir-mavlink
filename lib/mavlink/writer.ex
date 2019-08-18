@@ -171,7 +171,7 @@ defmodule MAVLink.Writer do
           def unpack(_, _), do: {:error, :unknown_message}
           
         end
-        """, [])
+        """, [force: true])
       
         IO.puts("Generated #{module_name} in '#{output_ex_source_path}'.")
         :ok
