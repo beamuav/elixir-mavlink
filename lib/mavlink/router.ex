@@ -23,6 +23,7 @@ defmodule MAVLink.Router do
   
   
   def start_link(state, opts \\ []) do
+    # TODO restore state from ERTS?
     GenServer.start_link(
       __MODULE__,
       state,
@@ -207,15 +208,13 @@ defmodule MAVLink.Router do
   end
   
   
-  @doc """
-  Use callbacks from generated MAVLink dialect module to ensure
-  message checksum matches, restore trailing zero bytes if truncation
-  occurred and unpack the message payload. See:
-  
-    https://mavlink.io/en/guide/serialization.html
-    
-  for purpose of this and following functions.
-  """
+  #  Use callbacks from generated MAVLink dialect module to ensure
+  #  message checksum matches, restore trailing zero bytes if truncation
+  #  occurred and unpack the message payload. See:
+  #
+  #    https://mavlink.io/en/guide/serialization.html
+  #
+  #  for purpose of this and following functions.
   defp validate_and_route_message_frame(state = %{dialect: dialect},
         version, conn_key, raw, payload_length, sequence_number,
         source_system_id, source_component_id, message_id,
@@ -255,52 +254,46 @@ defmodule MAVLink.Router do
   end
   
   
-  @doc """
-  Systems should forward messages to another link if any of these conditions hold:
-  
-  - It is a broadcast message (target_system field omitted or zero).
-  - The target_system does not match the system id and the system knows the link of
-    the target system (i.e. it has previously seen a message from target_system on
-    the link).
-  - The target_system matches its system id and has a target_component field, and the
-    system has seen a message from the target_system/target_component combination on
-    the link.
-  - Non-broadcast messages must only be sent (or forwarded) to known destinations
-    (i.e. a system must previously have received a message from the target
-    system/component).
-  """
+  #  Systems should forward messages to another link if any of these conditions hold:
+  #
+  #  - It is a broadcast message (target_system field omitted or zero).
+  #  - The target_system does not match the system id and the system knows the link of
+  #    the target system (i.e. it has previously seen a message from target_system on
+  #    the link).
+  #  - The target_system matches its system id and has a target_component field, and the
+  #    system has seen a message from the target_system/target_component combination on
+  #    the link.
+  #  - Non-broadcast messages must only be sent (or forwarded) to known destinations
+  #    (i.e. a system must previously have received a message from the target
+  #    system/component).
   defp route_message_remote(state, message, version, conn_key, raw) do
     state # TODO
   end
   
-  
-  @doc """
-  Forward a message to a subscribing Elixir process.
-  
-  Systems/components should process a message locally if any of these conditions hold:
 
-  - It is a broadcast message (target_system field omitted or zero).
-  - The target_system matches its system id and target_component is broadcast
-    (target_component omitted or zero).
-  - The target_system matches its system id and has the component's target_component
-  - The target_system matches its system id and the component is unknown
-    (i.e. this component has not seen any messages on any link that have the message's
-    target_system/target_component).
-  """
+  #  Forward a message to a subscribing Elixir process.
+  #
+  #  Systems/components should process a message locally if any of these conditions hold:
+  #
+  #  - It is a broadcast message (target_system field omitted or zero).
+  #  - The target_system matches its system id and target_component is broadcast
+  #    (target_component omitted or zero).
+  #  - The target_system matches its system id and has the component's target_component
+  #  - The target_system matches its system id and the component is unknown
+  #    (i.e. this component has not seen any messages on any link that have the message's
+  #    target_system/target_component).
   defp route_message_local(state, message, source_system_id, source_component_id,
        version, conn_key) do
     state # TODO
   end
   
   
-  @doc """
-  - Map system/component ids to connections on which they have been seen
-  - Record skipped message sequence numbers to monitor connection health
-  - Systems should also check for SYSTEM_TIME messages with a decrease in time_boot_ms,
-    as this indicates that the system has rebooted. In this case it should clear stored
-    routing information (and might perform other actions that are useful following a
-    reboot - e.g. re-fetching parameters and home position etc.).
-  """
+  #  - Map system/component ids to connections on which they have been seen
+  #  - Record skipped message sequence numbers to monitor connection health
+  #  - Systems should also check for SYSTEM_TIME messages with a decrease in time_boot_ms,
+  #    as this indicates that the system has rebooted. In this case it should clear stored
+  #    routing information (and might perform other actions that are useful following a
+  #    reboot - e.g. re-fetching parameters and home position etc.).
   defp update_route_info(state, conn_key, source_system_id, source_component_id,
          sequence_number, version, conn_key) do
     state # TODO
