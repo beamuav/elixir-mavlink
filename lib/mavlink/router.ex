@@ -46,7 +46,7 @@ defmodule MAVLink.Router do
   # TODO refactor init, lacks elegance...
   
   @impl true
-  def init(state = %{dialect: dialect, connections: []}) do
+  def init(state = %{dialect: dialect, connection_strings: []}) do
     if dialect == nil do
       IO.puts "WARNING: No MAVLink dialect module specified in config.exs."
     end
@@ -55,7 +55,7 @@ defmodule MAVLink.Router do
       Map.merge(
         state,
         %{
-          conn_details: %{},      # serial or network connection
+          connections: %{},      # serial or network connection
           targets: %{},           # systems and components
           subscriptions: %{}      # local PIDs
         }
@@ -63,17 +63,17 @@ defmodule MAVLink.Router do
     }
   end
   
-  def init(state = %{dialect: dialect, connections: [_ | _]}) do
+  def init(state = %{dialect: dialect, connection_strings: [_ | _]}) do
     if dialect == nil do
       IO.puts "WARNING: No MAVLink dialect module specified in config.exs."
     end
     {
       :ok,
-      state.connections |> Enum.reduce(
+      state.connection_strings |> Enum.reduce(
         Map.merge(
           state,
           %{
-            conn_details: %{},      # serial or network connection
+            connections: %{},      # serial or network connection
             targets: %{},           # systems and components
             subscriptions: %{}      # local PIDs
           }
@@ -169,7 +169,7 @@ defmodule MAVLink.Router do
             {
               :reply,
               :ok,
-              state.conn_details |> Map.put_new(
+              state.connections |> Map.put_new(
                 {:serial, port},
                 {next_free_uart, <<>>})
             }
@@ -199,14 +199,13 @@ defmodule MAVLink.Router do
     {:ok, socket} = :gen_udp.open(port, [:binary, ip: address, active: :true])
     {:reply,
       :ok,
-      put_in(state, [:conn_details, {:udp, address, port}], socket)
+      state |> put_in([:connections, {:udp, address, port}], socket)
     }
   end
   
   defp do_connect_network("tcp", _address, _port, state) do
     {:reply, "tcp not implemented", state} # TODO
   end
-  
   
   #  Use callbacks from generated MAVLink dialect module to ensure
   #  message checksum matches, restore trailing zero bytes if truncation
@@ -216,7 +215,7 @@ defmodule MAVLink.Router do
   #
   #  for purpose of this and following functions.
   defp validate_and_route_message_frame(state = %{dialect: dialect},
-        version, conn_key, raw, payload_length, sequence_number,
+        version, connection_key, raw, payload_length, sequence_number,
         source_system_id, source_component_id, message_id,
         payload, checksum) do
     case apply(dialect, :msg_crc_size, [message_id]) do
@@ -234,11 +233,11 @@ defmodule MAVLink.Router do
                    payload <> <<0::size(payload_truncated_length)>>]) do
               {:ok, message} ->
                 state
-                |> route_message_remote(message, version, conn_key, raw)
+                |> route_message_remote(message, version, connection_key, raw)
                 |> route_message_local(message, source_system_id, source_component_id,
-                     version, conn_key)
-                |> update_route_info(conn_key, source_system_id, source_component_id,
-                     sequence_number, version, conn_key)
+                     version, connection_key)
+                |> update_route_info(connection_key, source_system_id, source_component_id,
+                     sequence_number, version, connection_key)
               _ ->
                 # Couldn't unpack message
                 state
@@ -266,7 +265,7 @@ defmodule MAVLink.Router do
   #  - Non-broadcast messages must only be sent (or forwarded) to known destinations
   #    (i.e. a system must previously have received a message from the target
   #    system/component).
-  defp route_message_remote(state, message, version, conn_key, raw) do
+  defp route_message_remote(state, message, version, connection_key, raw) do
     state # TODO
   end
   
@@ -283,7 +282,7 @@ defmodule MAVLink.Router do
   #    (i.e. this component has not seen any messages on any link that have the message's
   #    target_system/target_component).
   defp route_message_local(state, message, source_system_id, source_component_id,
-       version, conn_key) do
+       version, connection_key) do
     state # TODO
   end
   
@@ -294,8 +293,8 @@ defmodule MAVLink.Router do
   #    as this indicates that the system has rebooted. In this case it should clear stored
   #    routing information (and might perform other actions that are useful following a
   #    reboot - e.g. re-fetching parameters and home position etc.).
-  defp update_route_info(state, conn_key, source_system_id, source_component_id,
-         sequence_number, version, conn_key) do
+  defp update_route_info(state, connection_key, source_system_id, source_component_id,
+         sequence_number, version, connection_key) do
     state # TODO
   end
   

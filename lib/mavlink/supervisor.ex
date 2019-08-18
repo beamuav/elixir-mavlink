@@ -34,7 +34,7 @@ defmodule MAVLink.Supervisor do
           dialect: Application.get_env(:mavlink, :dialect),
           system: Application.get_env(:mavlink, :system),
           component: Application.get_env(:mavlink, :component),
-          connections: Application.get_env(:mavlink, :connections),
+          connection_strings: Application.get_env(:mavlink, :connections),
           uarts: [
             :"MAVLink.UART.1",
             :"MAVLink.UART.2",
