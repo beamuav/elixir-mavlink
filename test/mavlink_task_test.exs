@@ -1,10 +1,11 @@
 defmodule MAVLink.Test.Tasks do
   use ExUnit.Case
-  import Mix.Tasks.MAVLink
+  import Mix.Tasks.Mavlink
 
   @input "#{File.cwd!()}/test/input/common.xml"
   @output_dir "#{File.cwd!()}/test/output"
   @output "#{@output_dir}/MAVLink.ex"
+  @output_module "MAVLink"
 
   test "generate" do
     # Setup output directory
@@ -12,7 +13,7 @@ defmodule MAVLink.Test.Tasks do
     File.rm(@output)
     
     # Run mix task
-    run([@input, @output])
+    run([@input, @output, @output_module])
     
     # Did it generate
     assert File.exists?(@output)
