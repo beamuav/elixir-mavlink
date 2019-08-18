@@ -24,3 +24,6 @@ MAVLink.ex
 
 # Don't include any test outputs
 /test/output/*
+
+# Intellij
+.idea
