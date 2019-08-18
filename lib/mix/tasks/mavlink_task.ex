@@ -23,7 +23,13 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
   end
   
   def run([dialect_xml_path, output_ex_source_path]) do
-    run([dialect_xml_path, output_ex_source_path, output_ex_source_path |> rootname |> module_case])
+    run([
+      dialect_xml_path,
+      output_ex_source_path,
+      dialect_xml_path
+      |> rootname
+      |> basename
+      |> module_case])
   end
   
   def run([dialect_xml_path, output_ex_source_path, module_name]) do
