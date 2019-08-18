@@ -9,12 +9,21 @@ defmodule MAVLink.Mixfile do
       start_permanent: Mix.env == :prod,
       description: description(),
       package: package(),
+      aliases: aliases(),
       deps: deps(),
       dialyzer: [plt_add_apps: [:mix, :xmerl]],
       source_url: "https://github.com/robinhilliard/elixir-mavlink"
     ]
   end
+  
+  
+  defp aliases do
+    [
+      test: "test --no-start"
+    ]
+  end
 
+  
   @doc """
   Override environment variables in config.exs e.g:
   
