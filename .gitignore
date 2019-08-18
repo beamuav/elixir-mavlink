@@ -16,11 +16,11 @@ erl_crash.dump
 # Also ignore archive artifacts (built via "mix archive.build").
 *.ez
 
-# Don't include generated MAVLink file
-MAVLink.ex
-
 # Don't include iex startup script
 .iex.exs
 
 # Don't include any test outputs
 /test/output/*
+
+# Don't include generated files
+lib/mavlink/dialect/*

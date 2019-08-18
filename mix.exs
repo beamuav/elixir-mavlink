@@ -11,7 +11,7 @@ defmodule MAVLink.Mixfile do
       package: package(),
       deps: deps(),
       dialyzer: [plt_add_apps: [:mix, :xmerl]],
-      source_url: "https://github.com/robinhilliard/elixir-mavlink"
+      source_url: "https://github.com/beamuav/elixir-mavlink"
     ]
   end
 
@@ -49,7 +49,7 @@ defmodule MAVLink.Mixfile do
       name: "mavlink",
       files: ["lib", "mix.exs", "README.md", "LICENSE"],
       licenses: ["MIT"],
-      links: %{"Github" => "https://github.com/robinhilliard/elixir-mavlink"},
+      links: %{"Github" => "https://github.com/beamuav/elixir-mavlink"},
       maintainers: ["Robin Hilliard"]
     ]
   end
