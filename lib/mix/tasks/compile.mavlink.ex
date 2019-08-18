@@ -16,7 +16,7 @@ defmodule Mix.Tasks.Compile.Mavlink do
     %HTTPoison.Response{body: body} = HTTPoison.get!("https://raw.githubusercontent.com/ArduPilot/mavlink/1.0.12/message_definitions/v1.0/ardupilotmega.xml")
     File.write!("message_definitions/v1.0/ardupilotmega.xml", body) 
 
-    MAVLink.Writer.create("message_definitions/v1.0/ardupilotmega.xml", "lib/mavlink/dialect/apm.ex", "MAVLink.Dialect.APM")
+    MAVLink.Generator.generate!("message_definitions/v1.0/ardupilotmega.xml", "lib/mavlink/dialect/apm.ex", "MAVLink.Dialect.APM")
     :ok
   end
 end

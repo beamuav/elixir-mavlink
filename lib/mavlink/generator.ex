@@ -1,4 +1,4 @@
-defmodule MAVLink.Writer do
+defmodule MAVLink.Generator do
   import MAVLink.Parser
   import DateTime
   import Enum, only: [count: 1, join: 2, map: 2, filter: 2, reduce: 3, reverse: 1, sort: 1, into: 3]
@@ -8,7 +8,7 @@ defmodule MAVLink.Writer do
   
   use Bitwise, only_operators: true
   
-  def create(dialect_xml_path, output_ex_source_path, module_name) do
+  def generate!(dialect_xml_path, output_ex_source_path, module_name) do
     case parse_mavlink_xml(dialect_xml_path) do
       {:error, message} ->
         IO.puts message
