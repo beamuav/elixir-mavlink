@@ -29,7 +29,7 @@ defmodule MAVLink.Router do
     connection_strings: [],   # Connection descriptions from user
     connections: %{},         # MAVLink.UDP|TCP|Serial_Connection
     systems: %{},             # MAVLink {system_id, component_id} addresses
-    subscriptions: %{} ,      # Elixir processes
+    subscriptions: [],        # Elixir process queries
     uarts: []                 # Circuit.UART Pool
   ]
   @type mavlink_address :: MAVLink.Types.mavlink_address  # Can't used qualified type as map key
@@ -40,7 +40,7 @@ defmodule MAVLink.Router do
                connection_strings: [ String.t ],
                connections: %{tuple: MAVLink.Types.connection},
                systems: %{mavlink_address: MAVLink.Router.System},
-               subscriptions: %{},
+               subscriptions: [],
                uarts: [pid]
              }
   
@@ -53,6 +53,35 @@ defmodule MAVLink.Router do
       __MODULE__,
       state,
       [{:name, __MODULE__} | opts])
+  end
+  
+  
+  @doc """
+  Subscribes the calling process to messages matching the query.
+  Zero or more of the following query keywords are supported:
+  
+    message:      message_module
+    system_id:    integer 0..255
+    component_id: integer 0..255
+    
+  For example:
+  
+  ```
+    MAVLink.Router.subscribe message: MAVLink.Message.Heartbeat, system_id: 1
+  ```
+  """
+  # TODO this is subscribe_source, also need more common subscribe_target
+  def subscribe(query \\ []) do
+    GenServer.cast(
+      __MODULE__,
+      {
+        :subscribe,
+        [message: nil, system_id: 0, component_id: 0]
+        |> Keyword.merge(query)
+        |> Enum.into(%{}),
+        self()
+      }
+    )
   end
   
   
@@ -69,6 +98,13 @@ defmodule MAVLink.Router do
   
   def init(state = %{connection_strings: connection_strings = [_ | _]}) do
     {:ok, reduce(connection_strings, struct(MAVLink.Router, state), &connect/2)}
+  end
+  
+  
+  @impl true
+  def handle_cast({:subscribe, query, pid}, state) do
+    # TODO monitor and unsubscribe dead subscribers
+    {:noreply, %MAVLink.Router{state | subscriptions: [{query, pid} | state.subscriptions]}}
   end
   
   
@@ -115,7 +151,7 @@ defmodule MAVLink.Router do
                      message, raw)
                 |> route_message_local(
                      source_system_id, source_component_id,
-                     message_id, message)
+                     message)
                 |> update_route_info(
                      receiving_connection_key, message_protocol_info,
                      mavlink_version, sequence_number, source_system_id, source_component_id,
@@ -191,11 +227,24 @@ defmodule MAVLink.Router do
   #  - The target_system matches its system id and the component is unknown
   #    (i.e. this component has not seen any messages on any link that have the message's
   #    target_system/target_component).
+  # TODO source vs target system/component this is source
   defp route_message_local(
          state,
-         _source_system_id, _source_component_id,
-         _message_id, _message) do
-    state # TODO
+         source_system_id, source_component_id,
+         message = %{__struct__: message_type}) do
+    for {
+          %{
+            message: q_message_type,
+            system_id: q_system_id,
+            component_id: q_component_id},
+          pid} <- state.subscriptions do
+      with true <- q_message_type == nil or q_message_type == message_type,
+           true <- q_system_id == 0 or q_system_id == source_system_id,
+           true <- q_component_id == 0 or q_component_id == source_component_id do
+        send(pid, message)
+      end
+    end
+    state
   end
   
   
