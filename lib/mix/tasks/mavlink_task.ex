@@ -1,4 +1,4 @@
-defmodule Mix.Tasks.Mavlink do
+defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to work
   use Mix.Task
 
   
@@ -37,6 +37,7 @@ defmodule Mix.Tasks.Mavlink do
         message_code_fragments = get_message_code_fragments(messages, enums, module_name)
         unit_code_fragments = get_unit_code_fragments(messages)
         
+        # TODO These static types up to crc_extra should be factored out into MAVLink.Types
         true = create_file(output_ex_source_path,
         """
         defmodule #{module_name}.Types do
