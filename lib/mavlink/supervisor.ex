@@ -32,8 +32,8 @@ defmodule MAVLink.Supervisor do
         MAVLink.Router,
         %{
           dialect: Application.get_env(:mavlink, :dialect),
-          system: Application.get_env(:mavlink, :system),
-          component: Application.get_env(:mavlink, :component),
+          system_id: Application.get_env(:mavlink, :system_id),
+          component_id: Application.get_env(:mavlink, :component_id),
           connection_strings: Application.get_env(:mavlink, :connections),
           uarts: [
             :"MAVLink.UART.1",
