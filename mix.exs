@@ -17,6 +17,7 @@ defmodule MAVLink.Mixfile do
   end
   
   
+  # See https://virviil.github.io/2016/10/26/elixir-testing-without-starting-supervision-tree/
   defp aliases do
     [
       test: "test --no-start"
