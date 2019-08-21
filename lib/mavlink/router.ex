@@ -17,7 +17,7 @@ defmodule MAVLink.Router do
   
   import MAVLink.Utils, only: [parse_ip_address: 1, parse_positive_integer: 1, x25_crc: 1, x25_crc: 2]
   import Map, only: [get: 3, fetch!: 2]
-  import Enum, only: [reduce: 3]
+  import Enum, only: [reduce: 3, filter: 2]
   
   
   # Router state
@@ -60,25 +60,49 @@ defmodule MAVLink.Router do
   Subscribes the calling process to messages matching the query.
   Zero or more of the following query keywords are supported:
   
-    message:      message_module
-    system_id:    integer 0..255
-    component_id: integer 0..255
+    message:             message_module
+    source_system_id:    integer 0..255
+    source_component_id: integer 0..255
+    target_system_id:    integer 0..255
+    target_component_id: integer 0..255
     
   For example:
   
   ```
-    MAVLink.Router.subscribe message: MAVLink.Message.Heartbeat, system_id: 1
+    MAVLink.Router.subscribe message: MAVLink.Message.Heartbeat, source_system_id: 1
   ```
   """
-  # TODO this is subscribe_source, also need more common subscribe_target
+  @type subscribe_query_id_key :: :source_system_id | :source_component_id | :target_system_id | :target_component_id
+  @spec subscribe([{:message, module} | {subscribe_query_id_key, 0..255}]) :: :ok
   def subscribe(query \\ []) do
     GenServer.cast(
       __MODULE__,
       {
         :subscribe,
-        [message: nil, system_id: 0, component_id: 0]
+        [
+          message: nil,
+          source_system_id: 0,
+          source_component_id: 0,
+          target_system_id: 0,
+          target_component_id: 0
+        ]
         |> Keyword.merge(query)
         |> Enum.into(%{}),
+        self()
+      }
+    )
+  end
+  
+  
+  @doc """
+  Unsubscribes calling process from all existing subscriptions
+  """
+  @spec unsubscribe() :: :ok
+  def unsubscribe() do
+    GenServer.cast(
+      __MODULE__,
+      {
+        :unsubscribe,
         self()
       }
     )
@@ -107,6 +131,10 @@ defmodule MAVLink.Router do
     {:noreply, %MAVLink.Router{state | subscriptions: [{query, pid} | state.subscriptions]}}
   end
   
+  def handle_cast({:unsubscribe, pid}, state) do
+    {:noreply, %MAVLink.Router{state | subscriptions: filter(state.subscriptions, & not match?({_, ^pid}, &1))}}
+  end
+  
   
   @doc """
   Respond to incoming messages from connections
@@ -130,8 +158,8 @@ defmodule MAVLink.Router do
         receiving_connection_key, message_protocol_info,
         mavlink_version, sequence_number, source_system_id, source_component_id,
         message_id, payload_length, payload, checksum, raw) do
-    case apply(dialect, :msg_crc_size, [message_id]) do
-      {:ok, crc, expected_length} ->
+    case apply(dialect, :msg_attributes, [message_id]) do
+      {:ok, crc, expected_length, targeted?} ->
         case checksum == (
                :binary.bin_to_list(
                   raw,
@@ -150,7 +178,7 @@ defmodule MAVLink.Router do
                      mavlink_version,
                      message, raw)
                 |> route_message_local(
-                     source_system_id, source_component_id,
+                     source_system_id, source_component_id, targeted?,
                      message)
                 |> update_route_info(
                      receiving_connection_key, message_protocol_info,
@@ -227,20 +255,24 @@ defmodule MAVLink.Router do
   #  - The target_system matches its system id and the component is unknown
   #    (i.e. this component has not seen any messages on any link that have the message's
   #    target_system/target_component).
-  # TODO source vs target system/component this is source
+  # TODO query source or target system/component this is all source
   defp route_message_local(
          state,
-         source_system_id, source_component_id,
+         source_system_id, source_component_id, targeted?,
          message = %{__struct__: message_type}) do
     for {
           %{
             message: q_message_type,
-            system_id: q_system_id,
-            component_id: q_component_id},
+            source_system_id: q_source_system_id,
+            source_component_id: q_source_component_id,
+            target_system_id: q_target_system_id,
+            target_component_id: q_target_component_id},
           pid} <- state.subscriptions do
-      with true <- q_message_type == nil or q_message_type == message_type,
-           true <- q_system_id == 0 or q_system_id == source_system_id,
-           true <- q_component_id == 0 or q_component_id == source_component_id do
+      if (q_message_type == nil or q_message_type == message_type)
+          and (q_source_system_id == 0 or q_source_system_id == source_system_id)
+          and (q_source_component_id == 0 or q_source_component_id == source_component_id)
+          and (q_target_system_id == 0 or (targeted? and q_target_system_id == message.target_system))
+          and (q_target_component_id == 0 or (targeted? and q_target_component_id == message.target_system)) do
         send(pid, message)
       end
     end
