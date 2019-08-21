@@ -4,7 +4,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
   
   import MAVLink.Parser
   import DateTime
-  import Enum, only: [count: 1, join: 2, map: 2, filter: 2, reduce: 3, reverse: 1, sort: 1, into: 3]
+  import Enum, only: [any?: 2, count: 1, join: 2, map: 2, filter: 2, reduce: 3, reverse: 1, sort: 1, into: 3]
   import String, only: [trim: 1, replace: 3, split: 2, capitalize: 1, downcase: 1]
   import MAVLink.Utils
   import Mix.Generator, only: [create_file: 3]
@@ -185,9 +185,9 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
           
           
           @doc "Return the message checksum and size in bytes for a message with a specified id"
-          @spec msg_crc_size(#{module_name}.Types.message_id) :: {#{module_name}.Types.crc_extra, pos_integer} | {:error, :unknown_message_id}
-          #{message_code_fragments |> map(& &1.msg_crc_size) |> join("") |> trim}
-          def msg_crc_size(_), do: {:error, :unknown_message_id}
+          @spec msg_attributes(#{module_name}.Types.message_id) :: {#{module_name}.Types.crc_extra, pos_integer} | {:error, :unknown_message_id}
+          #{message_code_fragments |> map(& &1.msg_attributes) |> join("") |> trim}
+          def msg_attributes(_), do: {:error, :unknown_message_id}
         
         
           @doc "Unpack a MAVLink message given a MAVLink frame's message id and payload"
@@ -323,9 +323,9 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
       crc_extra = message |> calculate_message_crc_extra
       expected_payload_size = reduce(message.fields, 0, fn(field, sum) -> sum + type_to_binary(field).size end) # Without MAVLink 2 trailing 0 truncation
       %{
-        msg_crc_size:
+        msg_attributes:
           """
-            def msg_crc_size(#{message.id}), do: {:ok, #{crc_extra}, #{expected_payload_size}}
+            def msg_attributes(#{message.id}), do: {:ok, #{crc_extra}, #{expected_payload_size}, #{any?(message.fields, & &1.name == "target_system")}}
           """,
         unpack:
           """
