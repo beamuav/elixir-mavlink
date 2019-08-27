@@ -10,7 +10,7 @@ defmodule MAVLink.Utils do
   
   
   import List, only: [flatten: 1]
-  import Enum, only: [sort_by: 2, reduce: 3, join: 2, map: 2, reverse: 1]
+  import Enum, only: [sort_by: 2, join: 2, map: 2, reverse: 1]
   
   
   @doc """
@@ -80,11 +80,6 @@ defmodule MAVLink.Utils do
   end
   
   
-  @doc "Helper function for messages to pack bitmask fields"
-  @spec pack_bitmask(MapSet.t(MAVLink.Types.enum_value), MAVLink.Types.enum_type, (MAVLink.Types.enum_value, MAVLink.Types.enum_type -> integer)) :: integer
-  def pack_bitmask(flag_set, enum, encode), do: reduce(flag_set, 0, & &2 ^^^ encode.(&1, enum))
-  
-  
   @doc "Helper function for messages to pack string fields"
   @spec pack_string(binary, non_neg_integer) :: binary
   def pack_string(s, ordinality) do
@@ -106,20 +101,6 @@ defmodule MAVLink.Utils do
   def unpack_array(bin, fun, lst) do
     {elem, rest} = fun.(bin)
     unpack_array(rest, fun, [elem | lst])
-  end
-  
-  
-  @doc "Helper function for decode() to unpack bitmask fields"
-  @spec unpack_bitmask(integer, MAVLink.Types.enum_type, (integer, MAVLink.Types.enum_type -> MAVLink.Types.enum_value), MapSet.t, integer) :: MapSet.t(MAVLink.Types.enum_value)
-  def unpack_bitmask(value, enum, decode, acc \\ MapSet.new(), pos \\ 1) do
-    case {decode.(pos, enum), (value &&& pos) != 0} do
-      {not_atom, _} when not is_atom(not_atom) ->
-        acc
-      {entry, true} ->
-        unpack_bitmask(value, enum, decode, MapSet.put(acc, entry), pos <<< 1)
-      {_, false} ->
-        unpack_bitmask(value, enum, decode, acc, pos <<< 1)
-    end
   end
   
   
