@@ -10,15 +10,15 @@ defmodule MAVLink.SerialConnection do
   # TODO struct with a buffer
   
   
-  def connect(state, ["serial", port]) do
-    connect(state, ["serial", port, "9600"])
+  def connect(["serial", port], state) do
+    connect(["serial", port, "9600"], state)
   end
   
-  def connect(%MAVLink.Router{uarts: []}, ["serial", port, _]) do
+  def connect(["serial", port, _], %MAVLink.Router{uarts: []}) do
     raise RuntimeError, message: "no available UARTS for serial connection #{port}, maximum is 4"
   end
   
-  def connect(state = %MAVLink.Router{uarts: [next_free_uart | _free_uarts]}, ["serial", port, baud]) do
+  def connect(["serial", port, baud], state = %MAVLink.Router{uarts: [next_free_uart | _free_uarts]}) do
     attached_ports = UART.enumerate()
     case {Map.has_key?(attached_ports, port), parse_positive_integer(baud)} do
       {false, _} ->
