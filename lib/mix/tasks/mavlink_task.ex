@@ -43,71 +43,10 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
         message_code_fragments = get_message_code_fragments(messages, enums, module_name)
         unit_code_fragments = get_unit_code_fragments(messages)
         
-        # TODO These static types up to crc_extra should be factored out into MAVLink.Types
         true = create_file(output_ex_source_path,
         """
         defmodule #{module_name}.Types do
         
-          @typedoc "A parameter description"
-          @type param_description :: {pos_integer, String.t}
-          
-          
-          @typedoc "A list of parameter descriptions"
-          @type param_description_list :: [ param_description ]
-          
-          
-          @typedoc "Type used for field in encoded message"
-          @type field_type :: int8_t | int16_t | int32_t | int64_t | uint8_t | uint16_t | uint32_t | uint64_t | char | float | double
-          
-          
-          @typedoc "8-bit signed integer"
-          @type int8_t :: -128..127
-          
-          
-          @typedoc "16-bit signed integer"
-          @type int16_t :: -32_768..32_767
-          
-          
-          @typedoc "32-bit signed integer"
-          @type int32_t :: -2_147_483_647..2_147_483_647
-          
-          
-          @typedoc "64-bit signed integer"
-          @type int64_t :: integer
-          
-          
-          @typedoc "8-bit unsigned integer"
-          @type uint8_t :: 0..255
-          
-          
-          @typedoc "16-bit unsigned integer"
-          @type uint16_t :: 0..65_535
-          
-          
-          @typedoc "32-bit unsigned integer"
-          @type uint32_t :: 0..4_294_967_295
-          
-          
-          @typedoc "64-bit unsigned integer"
-          @type uint64_t :: pos_integer
-          
-          
-          @typedoc "64-bit signed float"
-          @type double :: Float64
-          
-          
-          @typedoc "1 -> not an array 2..255 -> an array"
-          @type field_ordinality :: 1..255
-          
-          
-          @typedoc "A MAVLink message id"
-          @type message_id :: non_neg_integer
-          
-          
-          @typedoc "A CRC_EXTRA checksum"
-          @type crc_extra :: 0..255
-          
-          
           @typedoc "A MAVLink message"
           @type message :: #{map(messages, & "#{module_name}.Message.#{&1[:name] |> module_case}") |> join(" | ")}
           
@@ -130,7 +69,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
         
         
         defprotocol #{module_name}.Pack do
-          @spec pack(#{module_name}.Types.message) :: {:ok, #{module_name}.Types.message_id, binary()} | {:error, String.t}
+          @spec pack(#{module_name}.Types.message) :: {:ok, MAVLink.Types.message_id, binary()} | {:error, String.t}
           def pack(message)
         end
         
@@ -146,7 +85,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
         defmodule #{module_name} do
         
           import String, only: [replace_trailing: 3]
-          import MAVLink.Utils, only: [unpack_array: 2, unpack_bitmask: 3]
+          import MAVLink.Utils, only: [unpack_array: 2]
           
           use Bitwise, only_operators: true
         
@@ -169,7 +108,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
           
           
           @doc "Return keyword list of mav_cmd parameters"
-          @spec describe_params(#{module_name}.Types.mav_cmd) :: #{module_name}.Types.param_description_list
+          @spec describe_params(#{module_name}.Types.mav_cmd) :: MAVLink.Types.param_description_list
           #{enum_code_fragments |> map(& &1[:describe_params]) |> join("\n  ") |> trim}
           
           
@@ -185,13 +124,33 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
           
           
           @doc "Return the message checksum and size in bytes for a message with a specified id"
-          @spec msg_attributes(#{module_name}.Types.message_id) :: {#{module_name}.Types.crc_extra, pos_integer} | {:error, :unknown_message_id}
+          @spec msg_attributes(MAVLink.Types.message_id) :: {MAVLink.Types.crc_extra, pos_integer} | {:error, :unknown_message_id}
           #{message_code_fragments |> map(& &1.msg_attributes) |> join("") |> trim}
           def msg_attributes(_), do: {:error, :unknown_message_id}
+
+        
+          @doc "Helper function for messages to pack bitmask fields"
+          @spec pack_bitmask(MapSet.t(#{module_name}.Types.enum_value), #{module_name}.Types.enum_type, (#{module_name}.Types.enum_value, #{module_name}.Types.enum_type -> integer)) :: integer
+          def pack_bitmask(flag_set, enum, encode), do: Enum.reduce(flag_set, 0, & &2 ^^^ encode.(&1, enum))
+        
+        
+          @doc "Helper function for decode() to unpack bitmask fields"
+          #TODO enum type/value moved dialyzer failing
+          @spec unpack_bitmask(integer, #{module_name}.Types.enum_type, (integer, #{module_name}.Types.enum_type -> #{module_name}.Types.enum_value), MapSet.t, integer) :: MapSet.t(#{module_name}.Types.enum_value)
+          def unpack_bitmask(value, enum, decode, acc \\\\ MapSet.new(), pos \\\\ 1) do
+            case {decode.(pos, enum), (value &&& pos) != 0} do
+              {not_atom, _} when not is_atom(not_atom) ->
+                acc
+              {entry, true} ->
+                unpack_bitmask(value, enum, decode, MapSet.put(acc, entry), pos <<< 1)
+              {_, false} ->
+                unpack_bitmask(value, enum, decode, acc, pos <<< 1)
+            end
+          end
         
         
           @doc "Unpack a MAVLink message given a MAVLink frame's message id and payload"
-          @spec unpack(#{module_name}.Types.message_id, binary) :: #{module_name}.Types.message | {:error, :unknown_message}
+          @spec unpack(MAVLink.Types.message_id, binary) :: #{module_name}.Types.message | {:error, :unknown_message}
           #{message_code_fragments |> map(& &1.unpack) |> join("") |> trim}
           def unpack(_, _), do: {:error, :unknown_message}
           
@@ -347,7 +306,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
     end
   end
   
-  @spec calculate_message_crc_extra(MAVLink.Parser.message_description) :: Mavlink.Types.crc_extra
+  @spec calculate_message_crc_extra(MAVLink.Parser.message_description) :: MAVLink.Types.crc_extra
   defp calculate_message_crc_extra(message) do
     reduce(
       message.fields |> wire_order |> filter(& !&1.is_extension),
@@ -400,13 +359,13 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
   end
   
   defp pack_field_code_fragment(field=%{name: name, ordinality: 1, enum: enum, display: :bitmask}, _, module_name) when enum != "" do
-    "MAVLink.Utils.pack_bitmask(msg.#{downcase(name)}, :#{enum}, &#{module_name}.encode/2)::#{type_to_binary(field).pattern}"
+    "#{module_name}.pack_bitmask(msg.#{downcase(name)}, :#{enum}, &#{module_name}.encode/2)::#{type_to_binary(field).pattern}"
   end
   
   defp pack_field_code_fragment(field=%{name: name, ordinality: 1, enum: enum}, enums_by_name, module_name) do
     case looks_like_a_bitmask?(enums_by_name[enum]) do
       true ->
-        "MAVLink.Utils.pack_bitmask(msg.#{downcase(name)}, :#{enum}, &#{module_name}.encode/2)::#{type_to_binary(field).pattern}"
+        "#{module_name}.pack_bitmask(msg.#{downcase(name)}, :#{enum}, &#{module_name}.encode/2)::#{type_to_binary(field).pattern}"
       false ->
         "#{module_name}.encode(msg.#{downcase(name)}, :#{enum})::#{type_to_binary(field).pattern}"
     end
@@ -472,7 +431,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
   defp field_type(%{type: "char"}, _), do: "char"
   defp field_type(%{type: "float"}, _), do: "Float32"
   defp field_type(%{type: "double"}, _), do: "Float64"
-  defp field_type(%{type: type}, module_name), do: "#{module_name}.Types.#{type}"
+  defp field_type(%{type: type}, _), do: "MAVLink.Types.#{type}"
   
   
   # Map field types to a binary pattern code fragment and a size
