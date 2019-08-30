@@ -46,9 +46,9 @@ defmodule MAVLink.Router do
   
   
   # Client API
-  
+  @spec start_link(%{dialect: module, system_id: non_neg_integer, component_id: non_neg_integer,
+    connection_strings: [String.t]}, [{atom, any}]) :: {:ok, pid}
   def start_link(state, opts \\ []) do
-    # TODO restore state from ERTS?
     GenServer.start_link(
       __MODULE__,
       state,
@@ -75,22 +75,28 @@ defmodule MAVLink.Router do
   @type subscribe_query_id_key :: :source_system_id | :source_component_id | :target_system_id | :target_component_id
   @spec subscribe([{:message, module} | {subscribe_query_id_key, 0..255}]) :: :ok
   def subscribe(query \\ []) do
-    GenServer.cast(
-      __MODULE__,
-      {
-        :subscribe,
-        [
-          message: nil,
-          source_system_id: 0,
-          source_component_id: 0,
-          target_system_id: 0,
-          target_component_id: 0
-        ]
-        |> Keyword.merge(query)
-        |> Enum.into(%{}),
-        self()
-      }
-    )
+    with message <- Keyword.get(query, :message),
+        true <- message == nil or Code.ensure_loaded?(message) do
+      GenServer.cast(
+        __MODULE__,
+        {
+          :subscribe,
+          [
+            message: nil,
+            source_system_id: 0,
+            source_component_id: 0,
+            target_system_id: 0,
+            target_component_id: 0
+          ]
+          |> Keyword.merge(query)
+          |> Enum.into(%{}),
+          self()
+        }
+      )
+    else
+      false ->
+        {:error, :invalid_message}
+    end
   end
   
   
@@ -127,8 +133,11 @@ defmodule MAVLink.Router do
   
   @impl true
   def handle_cast({:subscribe, query, pid}, state) do
-    # TODO monitor and unsubscribe dead subscribers
-    {:noreply, %MAVLink.Router{state | subscriptions: [{query, pid} | state.subscriptions]}}
+    # Monitor so that we can unsubscribe dead processes
+    Process.monitor(pid)
+    
+    # Uniq prevents duplicate subscriptions
+    {:noreply, %MAVLink.Router{state | subscriptions: Enum.uniq([{query, pid} | state.subscriptions])}}
   end
   
   def handle_cast({:unsubscribe, pid}, state) do
@@ -137,9 +146,16 @@ defmodule MAVLink.Router do
   
   
   @doc """
-  Respond to incoming messages from connections
+  Unsubscribe dead subscribers first, then incoming messages from connections
   """
   @impl true
+  def handle_info({:DOWN, _, :process, pid, _}, state) do
+    {
+      :noreply,
+      %MAVLink.Router{state | subscriptions: filter(state.subscriptions, & not match?({_, ^pid}, &1))}
+    }
+  end
+  
   def handle_info(message = {:udp, _, _, _, _}, state), do: MAVLink.UDPConnection.handle_info(message, state)
   def handle_info(message = {:tcp, _, _, _, _}, state), do: MAVLink.TCPConnection.handle_info(message, state)
   def handle_info(message = {:serial, _, _, _, _}, state), do: MAVLink.SerialConnection.handle_info(message, state)
@@ -244,7 +260,7 @@ defmodule MAVLink.Router do
   end
   
 
-  #  Forward a message to a subscribing Elixir process.
+  #  Forward a message to a subscribing Elixir process. The MAVLink directions are:
   #
   #  Systems/components should process a message locally if any of these conditions hold:
   #
@@ -255,7 +271,10 @@ defmodule MAVLink.Router do
   #  - The target_system matches its system id and the component is unknown
   #    (i.e. this component has not seen any messages on any link that have the message's
   #    target_system/target_component).
-  # TODO query source or target system/component this is all source
+  #
+  #  In our implementation we just let subscribers choose what messages they want
+  #  to receive, which should not be a problem for other systems as long as the various
+  #  MAVLink protocols are implemented by the set of subscribers.
   defp route_message_local(
          state,
          source_system_id, source_component_id, targeted?,
@@ -280,6 +299,7 @@ defmodule MAVLink.Router do
   end
   
   
+  #  MAVLink directions:
   #  - Map system/component ids to connections on which they have been seen
   #  - Record skipped message sequence numbers to monitor connection health
   #  - Systems should also check for SYSTEM_TIME messages with a decrease in time_boot_ms,
