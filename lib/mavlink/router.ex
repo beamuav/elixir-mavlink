@@ -16,21 +16,20 @@ defmodule MAVLink.Router do
   use GenServer
   
   import MAVLink.Utils, only: [parse_ip_address: 1, parse_positive_integer: 1, x25_crc: 1, x25_crc: 2]
-  import Map, only: [get: 3, fetch!: 2]
   import Enum, only: [reduce: 3, filter: 2]
   
   
   # Router state
 
   defstruct [
-    dialect: nil,             # Generated dialect module
-    system_id: 25,            # Default to ground station
+    dialect: nil,                             # Generated dialect module
+    system_id: 25,                            # Default to ground station
     component_id: 250,
-    connection_strings: [],   # Connection descriptions from user
-    connections: %{},         # MAVLink.UDP|TCP|Serial_Connection
-    systems: %{},             # MAVLink {system_id, component_id} addresses
-    subscriptions: [],        # Elixir process queries
-    uarts: []                 # Circuit.UART Pool
+    connection_strings: [],                   # Connection descriptions from user
+    connections: %{},                         # MAVLink.UDP|TCP|Serial_Connection
+    system_component_connection_version: %{}, # Connection and MAVLink version keyed by {system_id, component_id} addresses
+    subscriptions: [],                        # Elixir process queries
+    uarts: []                                 # Circuit.UART Pool
   ]
   @type mavlink_address :: MAVLink.Types.mavlink_address  # Can't used qualified type as map key
   @type t :: %MAVLink.Router{
@@ -39,7 +38,7 @@ defmodule MAVLink.Router do
                component_id: non_neg_integer,
                connection_strings: [ String.t ],
                connections: %{tuple: MAVLink.Types.connection},
-               systems: %{mavlink_address: MAVLink.Router.System},
+               system_component_connection_version: %{mavlink_address: {tuple, non_neg_integer}},
                subscriptions: [],
                uarts: [pid]
              }
@@ -171,8 +170,8 @@ defmodule MAVLink.Router do
   #  for purpose of this and following functions.
   def validate_and_route_message_frame(
         state = %MAVLink.Router{dialect: dialect},
-        receiving_connection_key, message_protocol_info,
-        mavlink_version, sequence_number, source_system_id, source_component_id,
+        receiving_connection, _message_protocol_info,
+        mavlink_version, _sequence_number, source_system_id, source_component_id,
         message_id, payload_length, payload, checksum, raw) do
     case apply(dialect, :msg_attributes, [message_id]) do
       {:ok, crc, expected_length, targeted?} ->
@@ -190,16 +189,15 @@ defmodule MAVLink.Router do
               {:ok, message} ->
                 state
                 |> route_message_remote(
-                     receiving_connection_key,
+                     receiving_connection,
                      mavlink_version,
                      message, raw)
                 |> route_message_local(
                      source_system_id, source_component_id, targeted?,
                      message)
                 |> update_route_info(
-                     receiving_connection_key, message_protocol_info,
-                     mavlink_version, sequence_number, source_system_id, source_component_id,
-                     message)
+                     receiving_connection, mavlink_version,
+                     source_system_id, source_component_id)
               _ ->
                 # Couldn't unpack message
                 state
@@ -299,23 +297,28 @@ defmodule MAVLink.Router do
   end
   
   
-  #  MAVLink directions:
-  #  - Map system/component ids to connections on which they have been seen
-  #  - Record skipped message sequence numbers to monitor connection health
-  #  - Systems should also check for SYSTEM_TIME messages with a decrease in time_boot_ms,
-  #    as this indicates that the system has rebooted. In this case it should clear stored
-  #    routing information (and might perform other actions that are useful following a
-  #    reboot - e.g. re-fetching parameters and home position etc.).
+  #  Map system/component ids to connections on which they have been seen, and
+  #  remember version of the most recent message so that we can mirror that
+  #  version when sending.
+  #
+  #  This doesn't seem to be the right place to implement the other MAVLink
+  #  routing directions:
+  #
+  #  - Recording dropped messages is only useful if you're sending SYS_STATUS
+  #    messages, which seem to be more for autopilots than routing logic
+  #  - Responses to SYSTEM_TIME resets are implemented by microservices
+  #
   defp update_route_info(
-         state,
-         connection_key, _message_protocol_info,
-         _mavlink_version, _sequence_number, source_system_id, source_component_id,
-         _message) do
-    _connection = state.connections |> fetch!(connection_key) # We just received a message on this connection
-    _system = get(state.systems,
-      {source_system_id, source_component_id},
-      %{}) # TODO System
-    state
+         state, connection, mavlink_version,
+         source_system_id, source_component_id) do
+    %MAVLink.Router{
+      state | system_component_connection_version:
+      put_in(
+        state.system_component_connection_version,
+        [{source_system_id, source_component_id}],
+        {connection, mavlink_version}
+      )
+    }
   end
   
 end
