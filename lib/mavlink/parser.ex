@@ -104,7 +104,7 @@ defmodule MAVLink.Parser do
   # See https://mavlink.io/en/guide/xml_schema.html, mavparse.py merge_enums() and
   # check_duplicates() for proper validation. If making changes to definitions test
   # first with mavgen for now.
-  
+  # TODO Handle missing includes without borking
   def combine_definitions([single_def]) do
     single_def
   end
