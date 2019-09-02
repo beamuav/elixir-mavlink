@@ -68,17 +68,6 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
         end
         
         
-        defprotocol #{module_name}.Pack do
-          @spec pack(#{module_name}.Types.message) :: {:ok, MAVLink.Types.message_id, binary()} | {:error, String.t}
-          def pack(message)
-        end
-        
-        
-        defimpl #{module_name}.Pack, for: [Atom, BitString, Float, Function, Integer, List, Map, PID, Port, Reference, Tuple] do
-          def pack(not_a_message), do: {:error, "pack(): \#{inspect(not_a_message)} is not a #{module_name} message"}
-        end
-        
-        
         #{message_code_fragments |> map(& &1.module) |> join("\n\n") |> trim}
         
         
@@ -124,7 +113,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
           
           
           @doc "Return the message checksum and size in bytes for a message with a specified id"
-          @spec msg_attributes(MAVLink.Types.message_id) :: {MAVLink.Types.crc_extra, pos_integer} | {:error, :unknown_message_id}
+          @spec msg_attributes(MAVLink.Types.message_id) :: {:ok, MAVLink.Types.crc_extra, pos_integer, boolean} | {:error, :unknown_message_id}
           #{message_code_fragments |> map(& &1.msg_attributes) |> join("") |> trim}
           def msg_attributes(_), do: {:error, :unknown_message_id}
 
@@ -135,7 +124,6 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
         
         
           @doc "Helper function for decode() to unpack bitmask fields"
-          #TODO enum type/value moved dialyzer failing
           @spec unpack_bitmask(integer, #{module_name}.Types.enum_type, (integer, #{module_name}.Types.enum_type -> #{module_name}.Types.enum_value), MapSet.t, integer) :: MapSet.t(#{module_name}.Types.enum_value)
           def unpack_bitmask(value, enum, decode, acc \\\\ MapSet.new(), pos \\\\ 1) do
             case {decode.(pos, enum), (value &&& pos) != 0} do
@@ -297,8 +285,8 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
             defstruct [#{field_names}]
             @typedoc "#{escape(message.description)}"
             @type t :: %#{module_name}.Message.#{message_module_name}{#{field_types}}
-            defimpl #{module_name}.Pack do
-              def pack(msg), do: {:ok, #{message.id}, <<#{pack_binary_pattern}>>}
+            defimpl MAVLink.Pack do
+              def pack(msg), do: {:ok, #{message.id}, #{module_name}.msg_attributes(#{message.id}), <<#{pack_binary_pattern}>>}
             end
           end
           """
