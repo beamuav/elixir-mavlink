@@ -15,6 +15,7 @@ defmodule MAVLink.Router do
   
   use GenServer
   
+  import MAVLink.Pack
   import MAVLink.Utils, only: [parse_ip_address: 1, parse_positive_integer: 1, x25_crc: 1, x25_crc: 2]
   import Enum, only: [reduce: 3, filter: 2]
   
@@ -29,6 +30,7 @@ defmodule MAVLink.Router do
     connections: %{},                         # MAVLink.UDP|TCP|Serial_Connection
     system_component_connection_version: %{}, # Connection and MAVLink version keyed by {system_id, component_id} addresses
     subscriptions: [],                        # Elixir process queries
+    sequence_number: 0,                       # Sequence number of next sent message
     uarts: []                                 # Circuit.UART Pool
   ]
   @type mavlink_address :: MAVLink.Types.mavlink_address  # Can't used qualified type as map key
@@ -40,6 +42,7 @@ defmodule MAVLink.Router do
                connections: %{tuple: MAVLink.Types.connection},
                system_component_connection_version: %{mavlink_address: {tuple, non_neg_integer}},
                subscriptions: [],
+               sequence_number: non_neg_integer,
                uarts: [pid]
              }
   
@@ -114,6 +117,31 @@ defmodule MAVLink.Router do
   end
   
   
+  @doc """
+  Send a MAVLink message to one or more recipients using available
+  connections. For now if destination is unreachable it will fail
+  silently.
+  """
+  def send(message) do
+    {:ok, msg_id, {:ok, crc_extra, _, targeted?}, packed} = pack(message)
+    {target_system_id, target_component_id} = if targeted? do
+      {message.target_system, message.target_component}
+    else
+      {0, 0}
+    end
+    GenServer.cast(
+      __MODULE__,
+      {
+        :send,
+        msg_id,
+        target_system_id,
+        target_component_id,
+        packed,
+        crc_extra
+      }
+    )
+  end
+  
   # Callbacks
   
   @impl true
@@ -121,12 +149,11 @@ defmodule MAVLink.Router do
     {:error, :no_mavlink_dialect_set}
   end
   
-  def init(state = %{connection_strings: []}) do
-    {:ok, struct(MAVLink.Router, state)}
-  end
-  
-  def init(state = %{connection_strings: connection_strings = [_ | _]}) do
-    {:ok, reduce(connection_strings, struct(MAVLink.Router, state), &connect/2)}
+  def init(state = %{connection_strings: connection_strings}) do
+    {
+      :ok,
+      reduce(connection_strings, struct(MAVLink.Router, state), &connect/2)
+    }
   end
   
   
@@ -141,6 +168,22 @@ defmodule MAVLink.Router do
   
   def handle_cast({:unsubscribe, pid}, state) do
     {:noreply, %MAVLink.Router{state | subscriptions: filter(state.subscriptions, & not match?({_, ^pid}, &1))}}
+  end
+  
+  def handle_cast({
+    :send,
+    msg_id, target_system_id, target_component_id,
+    packed_payload, crc_extra
+  }, state = %MAVLink.Router{
+    system_component_connection_version: sccv
+  }) do
+    case sccv |> Map.get({target_system_id, target_component_id}, :not_seen) do
+      {connection, mavlink_version} ->
+        pack_frame(mavlink_version, msg_id, packed_payload, crc_extra, state)
+        |> forward(connection)
+      :not_seen ->
+        {:noreply, state}
+    end
   end
   
   
@@ -170,8 +213,8 @@ defmodule MAVLink.Router do
   #  for purpose of this and following functions.
   def validate_and_route_message_frame(
         state = %MAVLink.Router{dialect: dialect},
-        receiving_connection, _message_protocol_info,
-        mavlink_version, _sequence_number, source_system_id, source_component_id,
+        receiving_connection, mavlink_version, _sequence_number,
+        source_system_id, source_component_id,
         message_id, payload_length, payload, checksum, raw) do
     case apply(dialect, :msg_attributes, [message_id]) do
       {:ok, crc, expected_length, targeted?} ->
@@ -194,7 +237,7 @@ defmodule MAVLink.Router do
                      message, raw)
                 |> route_message_local(
                      source_system_id, source_component_id, targeted?,
-                     message)
+                     message) # TODO add sequence number
                 |> update_route_info(
                      receiving_connection, mavlink_version,
                      source_system_id, source_component_id)
@@ -237,6 +280,69 @@ defmodule MAVLink.Router do
   end
   
   
+  # Pack a message frame
+  defp pack_frame(1, message_id, packed_payload, crc_extra, state=%MAVLink.Router{
+           sequence_number: sequence_number,
+           system_id: source_system_id,
+           component_id: source_component_id
+         }) do
+    payload_length = byte_size(packed_payload)
+    frame = <<payload_length::unsigned-integer-size(8),
+              sequence_number::unsigned-integer-size(8),
+              source_system_id::unsigned-integer-size(8),
+              source_component_id::unsigned-integer-size(8),
+              message_id::little-unsigned-integer-size(24),
+              packed_payload::binary()>>
+    {
+      <<0xfe>> <> frame <> checksum(frame, crc_extra),
+      put_in(state, [:sequence_number], rem(sequence_number + 1, 255))
+    }
+  end
+  
+  defp pack_frame(2, message_id, packed_payload, crc_extra,
+         state=%MAVLink.Router{
+           sequence_number: sequence_number,
+           system_id: source_system_id,
+           component_id: source_component_id
+         }) do
+    {truncated_length, truncated_payload} = truncate_payload(packed_payload)
+    frame = <<truncated_length::unsigned-integer-size(8),
+              0::unsigned-integer-size(8),  # Incompatible flags
+              0::unsigned-integer-size(8),  # Compatible flags
+              sequence_number::unsigned-integer-size(8),
+              source_system_id::unsigned-integer-size(8),
+              source_component_id::unsigned-integer-size(8),
+              message_id::little-unsigned-integer-size(24),
+              truncated_payload::binary()>>
+    {
+      <<0xfd>> <> frame <> checksum(frame, crc_extra),
+      put_in(state, [:sequence_number], rem(sequence_number + 1, 255))
+    }
+  end
+  
+  
+  # MAVLink 2 truncate trailing 0s in payload
+  defp truncate_payload(payload) do
+    truncated_payload = String.replace_trailing(payload, <<0>>, "")
+    if byte_size(truncated_payload) == 0 do
+      {1, <<0>>}  # First byte of payload never truncated
+    else
+      {byte_size(truncated_payload), truncated_payload}
+    end
+  end
+  
+  
+  # Calculate checksum
+  defp checksum(frame, crc_extra) do
+    cs = x25_crc(frame <> <<crc_extra::unsigned-integer-size(8)>>)
+    <<cs::little-unsigned-integer-size(16)>>
+  end
+  
+  
+  # Delegate sending a message to connection-type specific code
+  defp forward({frame, state}, connection={:udp, _, _, _}), do: MAVLink.UDPConnection.forward(frame, connection, state)
+  # TODO others
+  
   #  Systems should forward messages to another link if any of these conditions hold:
   #
   #  - It is a broadcast message (target_system field omitted or zero).
@@ -254,7 +360,7 @@ defmodule MAVLink.Router do
          _receiving_connection_key,
          _mavlink_version,
          _message, _raw) do
-    state # TODO
+    state # TODO, get send working first
   end
   
 
