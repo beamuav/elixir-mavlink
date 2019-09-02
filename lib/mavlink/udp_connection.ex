@@ -4,7 +4,7 @@ defmodule MAVLink.UDPConnection do
   """
   
   
-  import MAVLink.Router, only: [validate_and_route_message_frame: 12]
+  import MAVLink.Router, only: [validate_and_route_message_frame: 11]
   
   
   defstruct [
@@ -35,7 +35,7 @@ defmodule MAVLink.UDPConnection do
     {
       :noreply,
       state |> validate_and_route_message_frame(
-                 sock, {source_addr, source_port},
+                 {:udp, sock, source_addr, source_port},
                  1, sequence_number, source_system_id, source_component_id,
                  message_id, payload_length, payload, checksum, raw)
     }
@@ -56,7 +56,7 @@ defmodule MAVLink.UDPConnection do
     {
       :noreply,
       state |> validate_and_route_message_frame(
-                 sock, {source_addr, source_port},
+                 {:udp, sock, source_addr, source_port},
                  2, sequence_number, source_system_id, source_component_id,
                  message_id, payload_length, payload, checksum, raw)
     }
@@ -66,6 +66,7 @@ defmodule MAVLink.UDPConnection do
     # Ignore UDP packets we don't recognise
     {:noreply, state}
   end
+  
   
   def connect(["udp", address, port], state) do
     {:ok, socket} = :gen_udp.open(port, [:binary, ip: address, active: :true])
@@ -79,5 +80,10 @@ defmodule MAVLink.UDPConnection do
           %{address: address, port: port, socket: socket}))}
   end
   
+  
+  def forward(frame, connection, state) do
+    IO.inspect(frame)
+    {:noreply, state} #TODO
+  end
 
 end
