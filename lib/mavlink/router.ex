@@ -14,6 +14,7 @@ defmodule MAVLink.Router do
   """
   
   use GenServer
+  require Logger
   
   import MAVLink.Pack
   import MAVLink.Utils, only: [parse_ip_address: 1, parse_positive_integer: 1, x25_crc: 1, x25_crc: 2]
@@ -170,20 +171,25 @@ defmodule MAVLink.Router do
     {:noreply, %MAVLink.Router{state | subscriptions: filter(state.subscriptions, & not match?({_, ^pid}, &1))}}
   end
   
-  def handle_cast({
-    :send,
-    msg_id, target_system_id, target_component_id,
-    packed_payload, crc_extra
-  }, state = %MAVLink.Router{
-    system_component_connection_version: sccv
-  }) do
-    case sccv |> Map.get({target_system_id, target_component_id}, :not_seen) do
-      {connection, mavlink_version} ->
-        pack_frame(mavlink_version, msg_id, packed_payload, crc_extra, state)
-        |> forward(connection)
-      :not_seen ->
-        {:noreply, state}
+  def handle_cast({:send, msg_id, target_system_id, target_component_id,
+    packed_payload, crc_extra}, state) do
+    {mavlink_1_frame, state_next_seq} = pack_frame(1, msg_id, packed_payload, crc_extra, state)
+    {mavlink_2_frame, _} = pack_frame(2, msg_id, packed_payload, crc_extra, state)
+    for {_, {connection, mavlink_version}} <- matching_system_components(
+      target_system_id, target_component_id, state_next_seq) do
+        forward(
+          connection,
+          case mavlink_version do
+            1 ->
+              mavlink_1_frame
+            2 ->
+              mavlink_2_frame
+          end,
+          state
+        )
     end
+    # We only want to advance the sequence number once
+    {:noreply, state_next_seq}
   end
   
   
@@ -243,14 +249,17 @@ defmodule MAVLink.Router do
                      source_system_id, source_component_id)
               _ ->
                 # Couldn't unpack message
+                Logger.info "Couldn't unpack #{inspect(raw)}"
                 state
             end
           _ ->
             # Checksum didn't match
+            Logger.info "Checksum didn't match #{inspect(raw)}"
             state
         end
       {:error, _} ->
         # TODO Message id not in dialect MAVLink says we should broadcast anyway but won't it bounce forever?
+        Logger.info "Message id not in dialect #{inspect(raw)}"
         state
     end
   end
@@ -280,6 +289,19 @@ defmodule MAVLink.Router do
   end
   
   
+  # Known system/components matching target with 0 wildcard
+  defp matching_system_components(q_system_id, q_component_id,
+         %MAVLink.Router{system_component_connection_version: sccv}) do
+    Enum.filter(
+      sccv,
+      fn {{sid, cid}, _} ->
+          (q_system_id == 0 or q_system_id == sid) and
+          (q_component_id == 0 or q_component_id == cid)
+      end
+    )
+  end
+  
+  
   # Pack a message frame
   defp pack_frame(1, message_id, packed_payload, crc_extra, state=%MAVLink.Router{
            sequence_number: sequence_number,
@@ -291,11 +313,11 @@ defmodule MAVLink.Router do
               sequence_number::unsigned-integer-size(8),
               source_system_id::unsigned-integer-size(8),
               source_component_id::unsigned-integer-size(8),
-              message_id::little-unsigned-integer-size(24),
+              message_id::little-unsigned-integer-size(8),
               packed_payload::binary()>>
     {
       <<0xfe>> <> frame <> checksum(frame, crc_extra),
-      put_in(state, [:sequence_number], rem(sequence_number + 1, 255))
+      %MAVLink.Router{state | sequence_number: rem(sequence_number + 1, 255)}
     }
   end
   
@@ -316,7 +338,7 @@ defmodule MAVLink.Router do
               truncated_payload::binary()>>
     {
       <<0xfd>> <> frame <> checksum(frame, crc_extra),
-      put_in(state, [:sequence_number], rem(sequence_number + 1, 255))
+      %MAVLink.Router{state | sequence_number: rem(sequence_number + 1, 255)}
     }
   end
   
@@ -340,7 +362,7 @@ defmodule MAVLink.Router do
   
   
   # Delegate sending a message to connection-type specific code
-  defp forward({frame, state}, connection={:udp, _, _, _}), do: MAVLink.UDPConnection.forward(frame, connection, state)
+  defp forward(connection={:udp, _, _, _}, frame, state), do: MAVLink.UDPConnection.forward(connection, frame, state)
   # TODO others
   
   #  Systems should forward messages to another link if any of these conditions hold:
