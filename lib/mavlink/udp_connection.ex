@@ -3,7 +3,7 @@ defmodule MAVLink.UDPConnection do
   MAVLink.Router delegate for UDP connections
   """
   
-  
+  require Logger
   import MAVLink.Router, only: [validate_and_route_message_frame: 11]
   
   
@@ -62,8 +62,9 @@ defmodule MAVLink.UDPConnection do
     }
   end
   
-  def handle_info({:udp, _sock, _addr, _port, _}, state) do
+  def handle_info({:udp, _sock, _addr, _port, raw}, state) do
     # Ignore UDP packets we don't recognise
+    Logger.info "Did not recognise #{inspect(raw)}"
     {:noreply, state}
   end
   
@@ -81,8 +82,9 @@ defmodule MAVLink.UDPConnection do
   end
   
   
-  def forward(frame, connection, state) do
-    IO.inspect(frame)
+  def forward({:udp, socket, address, port}, frame, state) do
+    # Mirror what we sent back through receive code to test
+    handle_info({:udp, socket, address, port, frame}, state)
     {:noreply, state} #TODO
   end
 
