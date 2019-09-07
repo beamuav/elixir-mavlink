@@ -13,7 +13,7 @@ defmodule MAVLink.Types do
   @type net_address :: {0..255, 0..255, 0..255, 0..255}
   
   @typedoc "A non-reserved network port"
-  @type net_port :: {1024..65535}
+  @type net_port :: 1024..65535
   
   @typedoc "A parameter description"
   @type param_description :: {pos_integer, String.t}
