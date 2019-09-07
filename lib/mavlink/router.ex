@@ -76,7 +76,7 @@ defmodule MAVLink.Router do
   ```
   """
   @type subscribe_query_id_key :: :source_system_id | :source_component_id | :target_system_id | :target_component_id
-  @spec subscribe([{:message, module} | {subscribe_query_id_key, 0..255}]) :: :ok
+  @spec subscribe([{:message, MAVLink.Pack.t()} | {subscribe_query_id_key, 0..255}]) :: :ok
   def subscribe(query \\ []) do
     with message <- Keyword.get(query, :message),
         true <- message == nil or Code.ensure_loaded?(message) do
@@ -171,6 +171,7 @@ defmodule MAVLink.Router do
     {:noreply, %MAVLink.Router{state | subscriptions: filter(state.subscriptions, & not match?({_, ^pid}, &1))}}
   end
   
+  # TODO should we allow "loopback" sends that just go to local subscribers?
   def handle_cast({:send, msg_id, target_system_id, target_component_id,
     packed_payload, crc_extra}, state) do
     {mavlink_1_frame, state_next_seq} = pack_frame(1, msg_id, packed_payload, crc_extra, state)
@@ -241,7 +242,7 @@ defmodule MAVLink.Router do
                      receiving_connection,
                      mavlink_version,
                      message, raw)
-                |> route_message_local(
+                |> route_message_local( # TODO local becomes new connection type
                      source_system_id, source_component_id, targeted?,
                      message) # TODO add sequence number
                 |> update_route_info(
