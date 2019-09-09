@@ -183,13 +183,6 @@ defmodule MAVLink.Test.Tasks do
           Elixir.MAVLink.Message.WheelDistance,
           Elixir.MAVLink.Message.WifiConfigAp,
           Elixir.MAVLink.Message.WindCov,
-          Elixir.MAVLink.Pack,
-          Elixir.MAVLink.Pack.Atom,
-          Elixir.MAVLink.Pack.BitString,
-          Elixir.MAVLink.Pack.Float,
-          Elixir.MAVLink.Pack.Function,
-          Elixir.MAVLink.Pack.Integer,
-          Elixir.MAVLink.Pack.List,
           Elixir.MAVLink.Pack.MAVLink.Message.ActuatorControlTarget,
           Elixir.MAVLink.Pack.MAVLink.Message.AdsbVehicle,
           Elixir.MAVLink.Pack.MAVLink.Message.Altitude,
@@ -347,11 +340,7 @@ defmodule MAVLink.Test.Tasks do
           Elixir.MAVLink.Pack.MAVLink.Message.WheelDistance,
           Elixir.MAVLink.Pack.MAVLink.Message.WifiConfigAp,
           Elixir.MAVLink.Pack.MAVLink.Message.WindCov,
-          Elixir.MAVLink.Pack.Map,
-          Elixir.MAVLink.Pack.PID,
-          Elixir.MAVLink.Pack.Port,
-          Elixir.MAVLink.Pack.Reference,
-          Elixir.MAVLink.Pack.Tuple
+          Elixir.MAVLink.Types
         ],
         Code.compile_file(@output)
         |> Keyword.keys()
@@ -359,7 +348,7 @@ defmodule MAVLink.Test.Tasks do
       )
 
     for {expected, actual} <- pairs do
-      assert expected == actual
+      assert(expected == actual, "expected #{expected} to equal #{actual}")
     end
   end
 end

@@ -101,20 +101,20 @@ defmodule MAVLink.Frame do
   def from_binary(<<>>), do: <<>>
   
   # TODO MAVLink.Dialect protocol to replace "module", change MAVLink.Pack to MAVLink.Message?
-  @spec validate_and_unpack(MAVLink.Frame, module) :: {:ok, MAVLink.Pack.t} | :failed_to_unpack | :checksum_invalid | :unknown_message
+  @spec validate(MAVLink.Frame, module) :: {:ok, MAVLink.Pack.t} | :failed_to_unpack | :checksum_invalid | :unknown_message
   def validate(frame, dialect) do
-    case apply(dialect, :msg_attributes, [message_id]) do
+    case apply(dialect, :msg_attributes, [frame.message_id]) do
       {:ok, crc, expected_length, targeted?} ->
-        if checksum == (
+        if frame.checksum == (
                :binary.bin_to_list(
                   frame.raw,
                   {1, frame.payload_length + elem({0, 5, 9}, frame.version)})
-                |> x25_crc()
-                |> x25_crc([crc])) do
+                |> Mavlink.Utils.x25_crc()
+                |> Mavlink.Utils.x25_crc([crc])) do
           payload_truncated_length = 8 * (expected_length - frame.payload_length)
           case apply(dialect, :unpack, [
-            message_id,
-            payload <> <<0::size(payload_truncated_length)>>]) do
+            frame.message_id,
+            frame.payload <> <<0::size(payload_truncated_length)>>]) do
             {:ok, message} ->
               {:ok, message}
             _ ->
