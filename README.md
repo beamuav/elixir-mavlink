@@ -141,8 +141,9 @@ mix mavlink message_definitions/ardupilotmega.xml output/apm.ex APM
 ```elixir
 defmodule TestLog do
   def start do
-    # MAVLink.Router.subscribe(message: APM.Message.Attitude)
+    # MAVLink.Router.subscribe(message: APM.Message.VfrHud)
     MAVLink.Router.subscribe(message: APM.Message.SysStatus)
+    # MAVLink.Router.subscribe(message: APM.Message.Heartbeat)
     loop()
   end
 
@@ -154,4 +155,6 @@ defmodule TestLog do
     end
   end
 end
+
+TestLog.start()
 ```
