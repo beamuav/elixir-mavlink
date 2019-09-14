@@ -27,3 +27,12 @@ MAVLink.ex
 
 # Intellij
 .idea
+
+# macOS invisibles
+.DS_Store
+
+# Suggested folder to put your MAVLink protocol XML files
+/message_definitions
+
+# Somewhere to generate your output Elixir file
+/output
