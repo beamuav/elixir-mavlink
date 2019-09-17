@@ -4,88 +4,77 @@ defmodule MAVLink.UDPConnection do
   """
   
   require Logger
-  import MAVLink.Router, only: [validate_and_route_message_frame: 11]
+  import MAVLink.Router, only: [route: 1]
+  import MAVLink.Frame, only: [validate_and_unpack: 2]
   
   
   defstruct [
     address: nil,
     port: nil,
-    socket: nil,
-    received: 0,
-    dropped: 0
-  ]
+    socket: nil]
   @type t :: %MAVLink.UDPConnection{
                address: MAVLink.Types.net_address,
                port: MAVLink.Types.net_port,
-               socket: pid,
-               received: non_neg_integer,
-               dropped: non_neg_integer
-             }
-  
-  def handle_info({:udp, sock, source_addr, source_port, raw=
-    <<0xfe, # MAVLink version 1
-      payload_length::unsigned-integer-size(8),
-      sequence_number::unsigned-integer-size(8),
-      source_system_id::unsigned-integer-size(8),
-      source_component_id::unsigned-integer-size(8),
-      message_id::unsigned-integer-size(8),
-      payload::binary-size(payload_length),
-      checksum::little-unsigned-integer-size(16)>>}, state) do
-
-    {
-      :noreply,
-      state |> validate_and_route_message_frame(
-                 {:udp, sock, source_addr, source_port},
-                 1, sequence_number, source_system_id, source_component_id,
-                 message_id, payload_length, payload, checksum, raw)
-    }
+               socket: pid}
+             
+             
+  def handle_info({:udp, socket, source_addr, source_port}, raw, state) do
+    receiving_connection = MAVLink.UDPConnection
+                          |> struct(socket: socket, address: source_addr,
+                               port: source_port)
+    case unpack_frame(raw) do
+      {received_frame, _} -> # UDP sends frame per packet, so ignore rest
+        case validate_and_unpack(received_frame, state.dialect) do
+          {:ok, valid_frame} ->
+            route(
+              receiving_connection,
+              valid_frame,
+              state
+            )
+          :unknown_message ->
+            # We re-broadcast valid frames with unknown messages
+            route(
+              receiving_connection,
+              received_frame,
+              state
+            )
+          reason ->
+              Logger.warn(
+                "UDP MAVLink frame received from " <>
+                "#{source_addr}:#{source_port} failed: #{Atom.to_string(reason)}")
+              state
+        end
+      <<>> ->
+        # Noise or malformed frame
+        state
+    end
   end
   
-  def handle_info({:udp, sock, source_addr, source_port, raw=
-    <<0xfd, # MAVLink version 2
-      payload_length::unsigned-integer-size(8),
-      0::unsigned-integer-size(8),   # TODO Rejecting all incompatible flags for now
-      _compatible_flags::unsigned-integer-size(8),
-      sequence_number::unsigned-integer-size(8),
-      source_system_id::unsigned-integer-size(8),
-      source_component_id::unsigned-integer-size(8),
-      message_id::little-unsigned-integer-size(24),
-      payload::binary-size(payload_length),
-      checksum::little-unsigned-integer-size(16)>>}, state) do
+  
+  def connect(["udp", address, port],
+                      state=%MAVLink.Router{connections: connections}) do
+    {:ok, socket} = :gen_udp.open(port,
+      [:binary, ip: address, active: :true])
     
-    {
-      :noreply,
-      state |> validate_and_route_message_frame(
-                 {:udp, sock, source_addr, source_port},
-                 2, sequence_number, source_system_id, source_component_id,
-                 message_id, payload_length, payload, checksum, raw)
-    }
-  end
-  
-  def handle_info({:udp, _sock, _addr, _port, raw}, state) do
-    # Ignore UDP packets we don't recognise
-    Logger.info "Did not recognise #{inspect(raw)}"
-    {:noreply, state}
-  end
-  
-  
-  def connect(["udp", address, port], state) do
-    {:ok, socket} = :gen_udp.open(port, [:binary, ip: address, active: :true])
-    %MAVLink.Router{
-      state | connections:
-      put_in(
-        state.connections,
-        [socket],
-        struct(
-          MAVLink.UDPConnection,
-          %{address: address, port: port, socket: socket}))}
+    connection = MAVLink.UDPConnection
+        |> struct(%{
+          socket: socket,
+          address: address,
+          port: port})
+    
+    state |> struct([
+      connections: Map.put(
+        connections, connection, 1) # TODO x 10 to force connection to mavlink version
+    ])
+
   end
   
   
-  def forward({:udp, socket, address, port}, frame, state) do
+  def forward(%MAVLink.UDPConnection{socket, address, port},
+        frame, state) do
     # Mirror what we sent back through receive code to test
     handle_info({:udp, socket, address, port, frame}, state)
-    {:noreply, state} #TODO
+    {:noreply, state} #TODO really forward over UDP
   end
 
 end

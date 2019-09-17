@@ -7,7 +7,13 @@ defmodule MAVLink.Types do
   @type connection ::  MAVLink.SerialConnection | MAVLink.TCPConnection | MAVLink.UDPConnection
   
   @typedoc "A system/component id tuple"
-  @type mavlink_address :: {non_neg_integer, non_neg_integer}
+  @type mavlink_address :: {0..255, 0..255}
+  
+  @typedoc "MAVLink protocol version"
+  @type version :: 1 | 2
+  
+  @typedoc "MAVLink message sequence number"
+  @type sequence_number :: 0..255
   
   @typedoc "A 4-tuple network address"
   @type net_address :: {0..255, 0..255, 0..255, 0..255}
