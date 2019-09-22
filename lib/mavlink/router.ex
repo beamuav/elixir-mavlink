@@ -25,51 +25,49 @@ defmodule MAVLink.Router do
 
   # Router state
 
-  defstruct
-    # Generated dialect module
-    dialect: nil,
-    # Default to ground station
-    system_id: 25,
-    component_id: 250,
-    # Connection descriptions from user
-    connection_strings: [],
-    # MAVLink.UDP|TCP|Serial_Connection
-    connections: %{},
-    # Connection and MAVLink version keyed by {system_id, component_id} addresses
-    system_component_connection_version: %{},
-    # Elixir process queries
-    subscriptions: [],
-    # Sequence number of next sent message
-    sequence_number: 0,
-    # Circuit.UART Pool
-    uarts: []
+  # Generated dialect module
+  defstruct dialect: nil,
+            # Default to ground station
+            system_id: 25,
+            component_id: 250,
+            # Connection descriptions from user
+            connection_strings: [],
+            # MAVLink.UDP|TCP|Serial_Connection
+            connections: %{},
+            # Connection and MAVLink version keyed by {system_id, component_id} addresses
+            system_component_connection_version: %{},
+            # Elixir process queries
+            subscriptions: [],
+            # Sequence number of next sent message
+            sequence_number: 0,
+            # Circuit.UART Pool
+            uarts: []
 
   # Can't used qualified type as map key
   @type mavlink_address :: MAVLink.Types.mavlink_address()
-  @type t ::
-    %MAVLink.Router{
-      dialect: module | nil,
-      system_id: non_neg_integer,
-      component_id: non_neg_integer,
-      connection_strings: [String.t()],
-      connections: %{tuple: MAVLink.Types.connection()},
-      system_component_connection_version: %{mavlink_address: {tuple, non_neg_integer}},
-      subscriptions: [],
-      sequence_number: non_neg_integer,
-      uarts: [pid]
-    }
+  @type t :: %MAVLink.Router{
+          dialect: module | nil,
+          system_id: non_neg_integer,
+          component_id: non_neg_integer,
+          connection_strings: [String.t()],
+          connections: %{tuple: MAVLink.Types.connection()},
+          system_component_connection_version: %{mavlink_address: {tuple, non_neg_integer}},
+          subscriptions: [],
+          sequence_number: non_neg_integer,
+          uarts: [pid]
+        }
 
   # Client API
-  @spec
-    start_link(
-      %{
-        dialect: module,
-        system_id: non_neg_integer,
-        component_id: non_neg_integer,
-        connection_strings: [String.t()]
-      },
-      [{atom, any}]
-    ) :: {:ok, pid}
+  @spec start_link(
+          %{
+            dialect: module,
+            system_id: non_neg_integer,
+            component_id: non_neg_integer,
+            connection_strings: [String.t()]
+          },
+          [{atom, any}]
+        ) :: {:ok, pid}
+
   def start_link(state, opts \\ []) do
     GenServer.start_link(
       __MODULE__,
@@ -94,12 +92,12 @@ defmodule MAVLink.Router do
     MAVLink.Router.subscribe message: MAVLink.Message.Heartbeat, source_system_id: 1
   ```
   """
-  @type
-    subscribe_query_id_key ::
-      :source_system_id |
-      :source_component_id |
-      :target_system_id |
-      :target_component_id
+  @type subscribe_query_id_key ::
+          :source_system_id
+          | :source_component_id
+          | :target_system_id
+          | :target_component_id
+
   @spec subscribe([{:message, MAVLink.Pack.t()} | {subscribe_query_id_key, 0..255}]) :: :ok
   def subscribe(query \\ []) do
     with message <- Keyword.get(query, :message),
@@ -202,9 +200,9 @@ defmodule MAVLink.Router do
 
   # TODO should we allow "loopback" sends that just go to local subscribers?
   def handle_cast(
-      {:send, msg_id, target_system_id, target_component_id, packed_payload, crc_extra},
-      state
-    ) do
+        {:send, msg_id, target_system_id, target_component_id, packed_payload, crc_extra},
+        state
+      ) do
     {mavlink_1_frame, state_next_seq} = pack_frame(1, msg_id, packed_payload, crc_extra, state)
     {mavlink_2_frame, _} = pack_frame(2, msg_id, packed_payload, crc_extra, state)
 
