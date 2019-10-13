@@ -8,3 +8,6 @@ vfr_hud = %APM.Message.VfrHud{
   heading: 306,
   throttle: 0
 }
+MAV.subscribe message: APM.Message.VfrHud
+MAV.pack_and_send vfr_hud
+flush
