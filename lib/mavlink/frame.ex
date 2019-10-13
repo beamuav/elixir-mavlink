@@ -146,21 +146,21 @@ defmodule MAVLink.Frame do
             frame.payload <> <<0::size(payload_truncated_length)>>]) do
             {:ok, message} ->
               if targeted? do
-                frame |> struct([
+                {:ok, struct(frame, [
                   message: message,
                   target_system: message.target_system,
                   target_component: message.target_component,
                   targeted?: true,
                   crc_extra: crc_extra
-                ])
+                ])}
               else
-                frame |> struct([
+                {:ok, struct(frame, [
                   message: message,
                   target_system: 0,
                   target_component: 0,
                   targeted?: false,
                   crc_extra: crc_extra
-                ])
+                ])}
               end
               
             _ ->
@@ -186,7 +186,7 @@ defmodule MAVLink.Frame do
               frame.payload::binary()>>
     
     frame |> struct([
-      mavlink_1_raw: <<0xfe>> <> mavlink_1_frame <> checksum(frame, frame.crc_extra)
+      mavlink_1_raw: <<0xfe>> <> mavlink_1_frame <> checksum(mavlink_1_frame, frame.crc_extra)
     ])
   end
   
@@ -200,8 +200,8 @@ defmodule MAVLink.Frame do
               frame.source_component::unsigned-integer-size(8),
               frame.message_id::little-unsigned-integer-size(24),
               truncated_payload::binary()>>
-    frame |> struct([
-      mavlink_2_raw: <<0xfd>> <> mavlink_2_frame <> checksum(frame, frame.crc_extra)
+    struct(frame,[
+      mavlink_2_raw: <<0xfd>> <> mavlink_2_frame <> checksum(mavlink_2_frame, frame.crc_extra)
     ])
   end
   
