@@ -4,6 +4,7 @@ defmodule MAVLink.UDPConnection do
   """
   
   require Logger
+  alias MAVLink.Frame
   import MAVLink.Frame, only: [unpack_frame: 1, validate_and_unpack: 2]
   
   
@@ -18,9 +19,8 @@ defmodule MAVLink.UDPConnection do
              
              
   def handle_info({:udp, socket, source_addr, source_port, raw}, state) do
-    receiving_connection = MAVLink.UDPConnection
-                          |> struct(socket: socket, address: source_addr,
-                               port: source_port)
+    receiving_connection = struct(MAVLink.UDPConnection,
+                          socket: socket, address: source_addr, port: source_port)
     case unpack_frame(raw) do
       {received_frame, _} -> # UDP sends frame per packet, so ignore rest
         case validate_and_unpack(received_frame, state.dialect) do
@@ -32,7 +32,7 @@ defmodule MAVLink.UDPConnection do
           reason ->
               Logger.warn(
                 "UDP MAVLink frame received from " <>
-                "#{source_addr}:#{source_port} failed: #{Atom.to_string(reason)}")
+                "#{Enum.join(Tuple.to_list(source_addr), ".")}:#{source_port} failed: #{Atom.to_string(reason)}")
               {:error, state}
         end
       _ ->
@@ -42,8 +42,7 @@ defmodule MAVLink.UDPConnection do
   end
   
   
-  def connect(["udp", address, port],
-                      state=%MAVLink.Router{connections: connections}) do
+  def connect(["udp", address, port], state=%MAVLink.Router{connections: connections}) do
     {:ok, socket} = :gen_udp.open(
       port,
       [:binary, ip: address, active: :true]
@@ -66,10 +65,18 @@ defmodule MAVLink.UDPConnection do
   
   
   def forward(%MAVLink.UDPConnection{
-      socket: _socket,
-      address: _address,
-      port: _port}, _frame, state) do
-    #TODO really forward over UDP
+      socket: socket, address: address, port: port},
+      %Frame{version: 1, mavlink_1_raw: packet},
+      state) do
+    :gen_udp.send(socket, address, port, packet)
+    {:noreply, state}
+  end
+  
+  def forward(%MAVLink.UDPConnection{
+      socket: socket, address: address, port: port},
+      %Frame{version: 2, mavlink_2_raw: packet},
+      state) do
+    :gen_udp.send(socket, address, port, packet)
     {:noreply, state}
   end
 
