@@ -28,7 +28,13 @@ defmodule MAVLink.Router do
   alias MAVLink.UDPConnection
   
   
-  # Router state
+  # Router State
+  # ------------
+  # connections are configured by the user when the server starts. Broadcast messages
+  # (e.g. heartbeat) are always sent to all connections, whereas targeted messages
+  # are only sent to systems we have already seen and recorded in the routes map.
+  # subscriptions are where we record the queries and pids of local Elixir processes
+  # to forward messages to.
 
   defstruct [
     dialect: nil,                             # Generated dialect module
@@ -140,11 +146,13 @@ defmodule MAVLink.Router do
       __MODULE__,
       {
         :send,
-        Frame |> struct([
+        struct(Frame, [
           version: version,
           message_id: message_id,
           target_system: target_system,
           target_component: target_component,
+          targeted?: targeted?,
+          message: message,
           payload: payload,
           crc_extra: crc_extra])
       }
@@ -177,12 +185,14 @@ defmodule MAVLink.Router do
   end
   
   def handle_cast({:send, frame}, state) do
-    updated_frame = Frame.pack_frame(frame |> struct([
-      sequence_number: state.sequence_number,
-      source_system: state.source_system,
-      source_component: state.source_component
-    ]))
-    updated_state = state |> struct([sequence_number: rem(state.sequence_number + 1, 255)])
+    updated_frame = Frame.pack_frame(
+      struct(frame, [
+        sequence_number: state.sequence_number,
+        source_system: state.system,
+        source_component: state.component
+      ])
+    )
+    updated_state = struct(state, [sequence_number: rem(state.sequence_number + 1, 255)])
     {:noreply, route({:ok, :local, updated_frame, updated_state})}
   end
   
@@ -196,15 +206,20 @@ defmodule MAVLink.Router do
   def handle_info(_, state), do: {:noreply, state}
   
   
-  # Broadcast un-targeted messages to all connections
+  # Broadcast un-targeted messages to all connections except the
+  # source we received the message from
   def route({:ok,
         source_connection,
         frame=%Frame{target_system: 0, target_component: 0},
         state=%Router{connections: connections}}) do
     for connection <- connections do
-      forward(connection, frame, state)
+      # TODO This is why udpin vs udpout exists - shouldn't forward to our own ip and socket if udpin
+      # TODO Get double messages...
+      unless match?(^connection, source_connection) do
+        forward(connection, frame, state)
+      end
     end
-    forward(frame, state)
+    forward(:local, frame, state)
     update_route_info(source_connection, frame, state)
   end
   
@@ -216,7 +231,7 @@ defmodule MAVLink.Router do
     for connection <- matching_system_components(target_system, target_component, state) do
       forward(connection, frame, state)
     end
-    forward(frame, state)
+    forward(:local, frame, state)
     update_route_info(source_connection, frame, state)
   end
   
@@ -263,6 +278,8 @@ defmodule MAVLink.Router do
   
   
   # Map system/component ids to connections on which they have been seen
+  defp update_route_info(:local, _, state), do: state
+  
   defp update_route_info(receiving_connection,
          %Frame{
            source_system: source_system,
@@ -302,7 +319,7 @@ defmodule MAVLink.Router do
   defp forward(connection=%UDPConnection{}, frame, state), do: UDPConnection.forward(connection, frame, state)
  
   #  Forward a message to a local subscribing Elixir process.
-  defp forward(%MAVLink.Frame{
+  defp forward(:local, %Frame{
         source_system: source_system,
         source_component: source_component,
         target_system: target_system,
