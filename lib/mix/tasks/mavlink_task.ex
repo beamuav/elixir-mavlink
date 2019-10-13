@@ -285,7 +285,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
             defstruct [#{field_names}]
             @typedoc "#{escape(message.description)}"
             @type t :: %#{module_name}.Message.#{message_module_name}{#{field_types}}
-            defimpl MAVLink.Pack do
+            defimpl MAVLink.Message do
               def pack(msg), do: {:ok, #{message.id}, #{module_name}.msg_attributes(#{message.id}), <<#{pack_binary_pattern}>>}
             end
           end

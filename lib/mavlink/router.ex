@@ -16,11 +16,11 @@ defmodule MAVLink.Router do
   use GenServer
   require Logger
   
-  import MAVLink.Utils, only: [parse_ip_address: 1, parse_positive_integer: 1, x25_crc: 1, x25_crc: 2]
+  import MAVLink.Utils, only: [parse_ip_address: 1, parse_positive_integer: 1]
   import Enum, only: [reduce: 3, filter: 2]
   
   alias MAVLink.Frame
-  alias MAVLink.Pack, as: Message
+  alias MAVLink.Message
   alias MAVLink.Router
   alias MAVLink.SerialConnection
   alias MAVLink.TCPConnection
@@ -32,12 +32,12 @@ defmodule MAVLink.Router do
 
   defstruct [
     dialect: nil,                             # Generated dialect module
-    system: 25,                            # Default to ground station
+    system: 25,                               # Default to ground station
     component: 250,
     connection_strings: [],                   # Connection descriptions from user
-    connections: %{},                         # %{MAVLink.UDP|TCP|Serial_Connection: mavlink_version}
+    connections: MapSet.new(),                # %{MAVLink.UDP|TCP|Serial_Connection}
     routes: %{},                              # Connection and MAVLink version tuple keyed by MAVLink addresses
-    subscriptions: [],                        # Elixir process queries
+    subscriptions: [],                        # Local Connection Elixir process queries
     sequence_number: 0,                       # Sequence number of next sent message
     uarts: []                                 # Circuit.UART Pool
   ]
@@ -48,7 +48,7 @@ defmodule MAVLink.Router do
                system: non_neg_integer,
                component: non_neg_integer,
                connection_strings: [ String.t ],
-               connections: %{mavlink_connection: Types.version},
+               connections: %MapSet{},
                routes: %{mavlink_address: {mavlink_connection, Types.version}},
                subscriptions: [],
                sequence_number: Types.sequence_number,
@@ -56,9 +56,9 @@ defmodule MAVLink.Router do
              }
   
              
-  #######
-  # API #
-  #######
+  ##############
+  # Router API #
+  ##############
   
   @spec start_link(%{dialect: module, system: non_neg_integer, component: non_neg_integer,
     connection_strings: [String.t]}, [{atom, any}]) :: {:ok, pid}
@@ -74,7 +74,7 @@ defmodule MAVLink.Router do
   Subscribes the calling process to messages matching the query.
   Zero or more of the following query keywords are supported:
   
-    message:             message_module
+    message:          message_module
     source_system:    integer 0..255
     source_component: integer 0..255
     target_system:    integer 0..255
@@ -127,10 +127,10 @@ defmodule MAVLink.Router do
   connections. For now if destination is unreachable it will fail
   silently.
   """
-  def send(message) do
+  def pack_and_send(message, version \\ 2) do
     # We can only pack payload at this point because we need
     # router state to get source system/component and sequence number
-    {:ok, message_id, {:ok, crc_extra, _, targeted?}, payload} = pack(message)
+    {:ok, message_id, {:ok, crc_extra, _, targeted?}, payload} = Message.pack(message)
     {target_system, target_component} = if targeted? do
       {message.target_system, message.target_component}
     else
@@ -141,6 +141,7 @@ defmodule MAVLink.Router do
       {
         :send,
         Frame |> struct([
+          version: version,
           message_id: message_id,
           target_system: target_system,
           target_component: target_component,
@@ -151,9 +152,10 @@ defmodule MAVLink.Router do
   end
   
   
-  #############
-  # Callbacks #
-  #############
+  
+  #######################
+  # GenServer Callbacks #
+  #######################
   
   @impl true
   def init(%{dialect: nil}) do
@@ -167,134 +169,63 @@ defmodule MAVLink.Router do
   
   @impl true
   def handle_cast({:subscribe, query, pid}, state) do
-    # Monitor so that we can unsubscribe dead processes
-    Process.monitor(pid)
-    # Uniq prevents duplicate subscriptions
-    {:noreply, %Router{state | subscriptions:
-      Enum.uniq([{query, pid} | state.subscriptions])}}
+    subscribe(query, pid, state)
   end
   
   def handle_cast({:unsubscribe, pid}, state) do
-    {:noreply, %Router{state | subscriptions:
-      filter(state.subscriptions, & not match?({_, ^pid}, &1))}}
+    unsubscribe(pid, state)
   end
   
   def handle_cast({:send, frame}, state) do
-    updated_frame = pack_frame(frame |> struct([
+    updated_frame = Frame.pack_frame(frame |> struct([
       sequence_number: state.sequence_number,
       source_system: state.source_system,
       source_component: state.source_component
     ]))
-    updated_state = state |> struct([sequence_number: rem(sequence_number + 1, 255)])
-    {:noreply, route(:local, updated_frame, updated_state)}
+    updated_state = state |> struct([sequence_number: rem(state.sequence_number + 1, 255)])
+    {:noreply, route({:ok, :local, updated_frame, updated_state})}
   end
   
-  
-  @doc """
-  Unsubscribe dead subscribers first, then process incoming messages from connection ports
-  """
+
+  #Unsubscribe dead subscribers first, then process incoming messages from connection ports
   @impl true
-  def handle_info({:DOWN, _, :process, pid, _}, state) do
-    {:noreply, %Router{state | subscriptions: filter(state.subscriptions, & not match?({_, ^pid}, &1))}}
-  end
-  
-  def handle_info(message = {:udp, _, _, _, _}, state), do: {:noreply, UDPConnection.handle_info(message, state)}
-  def handle_info(message = {:tcp, _, _, _, _}, state), do: {:noreply, TCPConnection.handle_info(message, state)}
-  def handle_info(message = {:serial, _, _, _, _}, state), do: {:noreply, SerialConnection.handle_info(message, state)}
+  def handle_info({:DOWN, _, :process, pid, _}, state), do: subscriber_down(pid, state)
+  def handle_info(message = {:udp, _, _, _, _}, state), do: {:noreply, UDPConnection.handle_info(message, state) |> route()}
+  def handle_info(message = {:tcp, _, _, _, _}, state), do: {:noreply, TCPConnection.handle_info(message, state) |> route()}
+  def handle_info(message = {:serial, _, _, _, _}, state), do: {:noreply, SerialConnection.handle_info(message, state) |> route()}
   def handle_info(_, state), do: {:noreply, state}
   
   
-  def route(
-        :local,
+  # Broadcast un-targeted messages to all connections
+  def route({:ok,
+        source_connection,
+        frame=%Frame{target_system: 0, target_component: 0},
+        state=%Router{connections: connections}}) do
+    for connection <- connections do
+      forward(connection, frame, state)
+    end
+    forward(frame, state)
+    update_route_info(source_connection, frame, state)
+  end
+  
+  # Only send targeted messages to observed system/components
+  def route({:ok,
+        source_connection,
         frame=%Frame{target_system: target_system, target_component: target_component},
-        state=%Router{connections: connections}) do
-    # Broadcast from local to all connections using connection MAVLink version
-    for {forward_connection, forward_version} <- Map.to_list(connections) do
-      forward(
-        forward_connection,
-        frame |> struct([version:
-          case forward_version do
-            1 ->
-              1
-            10 ->
-              1
-            2 ->
-              2
-            20 ->
-              2
-          end
-        ]),
-        state
-      )
+        state=%Router{}}) do
+    for connection <- matching_system_components(target_system, target_component, state) do
+      forward(connection, frame, state)
     end
+    forward(frame, state)
+    update_route_info(source_connection, frame, state)
   end
   
-  def route(
-        :local,
-        frame=%Frame{target_system: target_system, target_component: target_component},
-        state=%Router{routes: routes, connections: connections}) do
-    # Targeted message from local using route MAVLink version
-    # unless overridden by connection with forced MAVLink version
-    case Map.get(routes, {target_system, target_component}, :not_seen) do
-      {route_connection, route_version} ->
-        forward_version = max(route_version,          # update_route_info() only updates
-          Map.get(connections, route_connection, -1)) # version in connections
-        forward(
-          forward_connection,
-          frame |> struct([version:
-            case forward_version do
-              1 ->
-                1
-              10 ->
-                1
-              2 ->
-                2
-              20 ->
-                2
-            end
-          ]),
-          state)
-        :not_seen ->
-          state             # Only send if we've received a message from target
-    end
-  end
+  def route({:error, state}), do: state
   
   
-  def route(
-        receiving_connection,
-        frame,
-        state
-      ) do
-    # Broadcast or targeted message, forward to all connections
-    # and let them decide whether or not to send. This delegation allows the
-    # local connection to snoop and in future might be used to support
-    # specialised connection types for redundancy or high priority messages.
-    for {forward_connection, forward_version} <- Map.to_list(connections) do
-      forward(
-        forward_connection,
-        case {received_mavlink_version, forward_version} do
-          {1, 1} ->
-            raw           # Match
-          {1, 2} ->
-            raw           # Not forced to MAVLink version 2
-          {1, 10} ->
-            raw           # Match forced version
-          {2, 1} ->
-            raw           # Not forced to MAVLink version 1
-          {2, 2} ->
-            raw           # Match
-          {2, 20} ->
-            raw           # Match forced version
-          _ ->
-            nil           # Doesn't match forced version, don't forward
-        end,state)
-    end
-  end
-  
-  
-  ###########
-  # Helpers #
-  ###########
+  ####################
+  # Helper Functions #
+  ####################
   
   defp connect(connection_string, state) when is_binary(connection_string) do
     connect(String.split(connection_string, [":", ","]), state)
@@ -331,26 +262,54 @@ defmodule MAVLink.Router do
   end
   
   
-  
-  # Delegate sending a message to connection-type specific code
-  defp forward(connection=%UDPConnection{}, frame, state) do
-    UDPConnection.forward(connection, frame, state)
+  # Map system/component ids to connections on which they have been seen
+  defp update_route_info(receiving_connection,
+         %Frame{
+           source_system: source_system,
+           source_component: source_component},
+         state=%Router{routes: routes}) do
+    struct(
+      state,
+      [
+        routes: Map.put(
+          routes,
+          {source_system, source_component},
+          receiving_connection)
+      ]
+    )
   end
-
-  # TODO others
   
-
   
-
-  #  Forward a message to a subscribing Elixir process.
-  #
-  #  We just let subscribers choose what messages they want to receive, which should
-  #  not be a problem for other systems as long as the various MAVLink protocols are
-  # implemented by the set of subscribers.
-  defp route_message_local(
-         state,
-         source_system, source_component, targeted?,
-         message = %{__struct__: message_type}) do
+  defp subscribe(query, pid, state) do
+    # Monitor so that we can unsubscribe dead processes
+    Process.monitor(pid)
+    # Uniq prevents duplicate subscriptions
+    {:noreply, %Router{state | subscriptions: Enum.uniq([{query, pid} | state.subscriptions])}}
+  end
+  
+  
+  defp unsubscribe(pid, state) do
+    {:noreply, %Router{state | subscriptions: filter(state.subscriptions, & not match?({_, ^pid}, &1))}}
+  end
+  
+  
+  defp subscriber_down(pid, state) do
+    {:noreply, %Router{state | subscriptions: filter(state.subscriptions, & not match?({_, ^pid}, &1))}}
+  end
+  
+  
+  # Delegate sending a message to non-local connection-type specific code
+  defp forward(connection=%UDPConnection{}, frame, state), do: UDPConnection.forward(connection, frame, state)
+ 
+  #  Forward a message to a local subscribing Elixir process.
+  defp forward(%MAVLink.Frame{
+        source_system: source_system,
+        source_component: source_component,
+        target_system: target_system,
+        target_component: target_component,
+        targeted?: targeted?,
+        message: message = %{__struct__: message_type}
+      }, state) do
     for {
           %{
             message: q_message_type,
@@ -362,40 +321,11 @@ defmodule MAVLink.Router do
       if (q_message_type == nil or q_message_type == message_type)
           and (q_source_system == 0 or q_source_system == source_system)
           and (q_source_component == 0 or q_source_component == source_component)
-          and (q_target_system == 0 or (targeted? and q_target_system == message.target_system))
-          and (q_target_component == 0 or (targeted? and q_target_component == message.target_system)) do
+          and (q_target_system == 0 or (targeted? and q_target_system == target_system))
+          and (q_target_component == 0 or (targeted? and q_target_component == target_component)) do
         send(pid, message)
       end
     end
-    state
-  end
-  
-  
-  # Map system/component ids to connections on which they have been seen, and
-  # remember maximum MAVLink version at connection/system-component level so that
-  # we can mirror that version when sending.
-  defp update_route_info(receiving_connection,
-         frame=%Frame{source_system: source_system,
-           source_component: source_component, version: version},
-         state=%Router{routes: routes}) do
-    state |> struct([
-      routes: Map.update(
-        routes,
-        {source_system, source_component},
-        {receiving_connection, version},
-        fn {receiving_connection, old_version} ->
-          {receiving_connection, max(old_version, version)} # Upgrade sys/comp to MAVLink 2 if we see it
-        end),
-      connections: Map.update(
-        connections,
-        receiving_connection,
-        1,
-        fn old_version ->
-          max(old_version, version) # Upgrade connection to MAVLink 2 if we see it
-        end
-      )
-    ])
-    
   end
   
 end

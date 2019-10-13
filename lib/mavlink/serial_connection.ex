@@ -1,3 +1,5 @@
+# NOTE THIS IS WAY BEHIND SEE UDPConnection for new format
+
 defmodule MAVLink.SerialConnection do
   @moduledoc """
   MAVLink.Router delegate for Serial connections

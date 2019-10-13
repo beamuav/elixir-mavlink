@@ -12,7 +12,8 @@ defmodule MAVLink.Mixfile do
       aliases: aliases(),
       deps: deps(),
       dialyzer: [plt_add_apps: [:mix, :xmerl]],
-      source_url: "https://github.com/robinhilliard/elixir-mavlink"
+      source_url: "https://github.com/robinhilliard/elixir-mavlink",
+      consolidate_protocols: Mix.env() != :test
     ]
   end
   
