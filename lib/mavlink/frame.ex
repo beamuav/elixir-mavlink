@@ -52,8 +52,8 @@ defmodule MAVLink.Frame do
              }
              
  
-  @spec unpack_frame(binary) :: {MAVLink.Frame.t, binary} | binary
-  def unpack_frame(raw_and_rest=<<0xfe, # MAVLink version 1
+  @spec binary_to_frame_and_tail(binary) :: {MAVLink.Frame.t, binary} | binary
+  def binary_to_frame_and_tail(raw_and_rest=<<0xfe, # MAVLink version 1
       payload_length::unsigned-integer-size(8),
       sequence_number::unsigned-integer-size(8),
       source_system::unsigned-integer-size(8),
@@ -63,7 +63,7 @@ defmodule MAVLink.Frame do
       checksum::little-unsigned-integer-size(16),
       rest::binary>>) do
     {
-      MAVLink.Frame |> struct([
+      struct(MAVLink.Frame, [
         version: 1,
         payload_length: payload_length,
         sequence_number: sequence_number,
@@ -81,7 +81,7 @@ defmodule MAVLink.Frame do
     }
   end
   
-  def unpack_frame(raw_and_rest=<<0xfd, # MAVLink version 2
+  def binary_to_frame_and_tail(raw_and_rest=<<0xfd, # MAVLink version 2
       payload_length::unsigned-integer-size(8),
       0::unsigned-integer-size(8),
       compatible_flags::unsigned-integer-size(8),
@@ -93,7 +93,7 @@ defmodule MAVLink.Frame do
       checksum::little-unsigned-integer-size(16),
       rest::binary>>) do
     {
-      MAVLink.Frame |> struct([
+      struct(MAVLink.Frame, [
         version: 2,
         payload_length: payload_length,
         incompatible_flags: 0,                # TODO handle incompatible flags
@@ -113,14 +113,14 @@ defmodule MAVLink.Frame do
     }
   end
   
-  def unpack_frame(unfinished_mavlink_1_frame=<<0xfe, _::binary>>), do: {nil, unfinished_mavlink_1_frame}
-  def unpack_frame(unfinished_mavlink_2_frame=<<0xfd, _::binary>>), do: {nil, unfinished_mavlink_2_frame}
-  def unpack_frame(<<_, rest::binary>>), do: unpack_frame(rest)
-  def unpack_frame(<<>>), do: {nil, <<>>}
+  def binary_to_frame_and_tail(unfinished_mavlink_1_frame=<<0xfe, _::binary>>), do: {nil, unfinished_mavlink_1_frame}
+  def binary_to_frame_and_tail(unfinished_mavlink_2_frame=<<0xfd, _::binary>>), do: {nil, unfinished_mavlink_2_frame}
+  def binary_to_frame_and_tail(<<_, rest::binary>>), do: binary_to_frame_and_tail(rest)
+  def binary_to_frame_and_tail(<<>>), do: :not_a_frame
   
   
   # TODO MAVLink.Dialect protocol to replace "module", change MAVLink.Pack to MAVLink.Message?
-  @spec validate_and_unpack(MAVLink.Frame, MAVLink.Dialect) :: {:ok, MAVLink.Frame} | :failed_to_unpack | :checksum_invalid | :unknown_message
+  @spec validate_and_unpack(MAVLink.Frame, module) :: {:ok, MAVLink.Frame} | :failed_to_unpack | :checksum_invalid | :unknown_message
   def validate_and_unpack(frame, dialect) do
     case apply(dialect, :msg_attributes, [frame.message_id]) do
       {:ok, crc_extra, expected_length, targeted?} ->
