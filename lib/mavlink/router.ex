@@ -25,7 +25,8 @@ defmodule MAVLink.Router do
   alias MAVLink.SerialConnection
   alias MAVLink.TCPConnection
   alias MAVLink.Types
-  alias MAVLink.UDPConnection
+  alias MAVLink.UDPInConnection
+  alias MAVLink.UDPOutConnection
   
   
   # Router State
@@ -200,7 +201,7 @@ defmodule MAVLink.Router do
   #Unsubscribe dead subscribers first, then process incoming messages from connection ports
   @impl true
   def handle_info({:DOWN, _, :process, pid, _}, state), do: subscriber_down(pid, state)
-  def handle_info(message = {:udp, _, _, _, _}, state), do: {:noreply, UDPConnection.handle_info(message, state) |> route()}
+  def handle_info(message = {:udp, _, _, _, _}, state), do: {:noreply, UDPInConnection.handle_info(message, state) |> route()}
   def handle_info(message = {:tcp, _, _, _, _}, state), do: {:noreply, TCPConnection.handle_info(message, state) |> route()}
   def handle_info(message = {:serial, _, _, _, _}, state), do: {:noreply, SerialConnection.handle_info(message, state) |> route()}
   def handle_info(_, state), do: {:noreply, state}
@@ -213,8 +214,6 @@ defmodule MAVLink.Router do
         frame=%Frame{target_system: 0, target_component: 0},
         state=%Router{connections: connections}}) do
     for connection <- connections do
-      # TODO This is why udpin vs udpout exists - shouldn't forward to our own ip and socket if udpin
-      # TODO Get double messages...
       unless match?(^connection, source_connection) do
         forward(connection, frame, state)
       end
@@ -247,7 +246,8 @@ defmodule MAVLink.Router do
   end
   
   defp connect(tokens = ["serial" | _], state), do: SerialConnection.connect(tokens, state)
-  defp connect(tokens = ["udp" | _], state), do: UDPConnection.connect(validate_address_and_port(tokens), state)
+  defp connect(tokens = ["udpin" | _], state), do: UDPInConnection.connect(validate_address_and_port(tokens), state)
+  defp connect(tokens = ["udpout" | _], state), do: UDPOutConnection.connect(validate_address_and_port(tokens), state)
   defp connect(tokens = ["tcp" | _], state), do: TCPConnection.connect(validate_address_and_port(tokens), state)
   defp connect([invalid_protocol | _], _), do: raise(ArgumentError, message: "invalid protocol #{invalid_protocol}")
 
@@ -316,7 +316,7 @@ defmodule MAVLink.Router do
   
   
   # Delegate sending a message to non-local connection-type specific code
-  defp forward(connection=%UDPConnection{}, frame, state), do: UDPConnection.forward(connection, frame, state)
+  defp forward(connection=%UDPOutConnection{}, frame, state), do: UDPOutConnection.forward(connection, frame, state)
  
   #  Forward a message to a local subscribing Elixir process.
   defp forward(:local, %Frame{

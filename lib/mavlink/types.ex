@@ -4,7 +4,7 @@ defmodule MAVLink.Types do
   """
   
   @typedoc "Connection delegate modules for MAVLink.Router"
-  @type connection ::  MAVLink.SerialConnection | MAVLink.TCPConnection | MAVLink.UDPConnection
+  @type connection ::  MAVLink.SerialConnection | MAVLink.TCPConnection | MAVLink.UDPInConnection | MAVLink.UDPOutConnection
   
   @typedoc "A system/component id tuple"
   @type mavlink_address :: {0..255, 0..255}

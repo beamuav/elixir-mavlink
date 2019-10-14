@@ -1,4 +1,4 @@
-defmodule MAVLink.UDPConnection do
+defmodule MAVLink.UDPOutConnection do
   @moduledoc """
   MAVLink.Router delegate for UDP connections
   """
@@ -12,14 +12,14 @@ defmodule MAVLink.UDPConnection do
     address: nil,
     port: nil,
     socket: nil]
-  @type t :: %MAVLink.UDPConnection{
+  @type t :: %MAVLink.UDPOutConnection{
                address: MAVLink.Types.net_address,
                port: MAVLink.Types.net_port,
                socket: pid}
              
              
   def handle_info({:udp, socket, source_addr, source_port, raw}, state) do
-    receiving_connection = struct(MAVLink.UDPConnection,
+    receiving_connection = struct(MAVLink.UDPOutConnection,
                           socket: socket, address: source_addr, port: source_port)
     case unpack_frame(raw) do
       {received_frame, _} -> # UDP sends frame per packet, so ignore rest
@@ -54,7 +54,7 @@ defmodule MAVLink.UDPConnection do
         connections: MapSet.put(
           connections,
           struct(
-            MAVLink.UDPConnection,
+            MAVLink.UDPOutConnection,
             [socket: socket, address: address, port: port]
           )
         )
@@ -64,7 +64,7 @@ defmodule MAVLink.UDPConnection do
   end
   
   
-  def forward(%MAVLink.UDPConnection{
+  def forward(%MAVLink.UDPOutConnection{
       socket: socket, address: address, port: port},
       %Frame{version: 1, mavlink_1_raw: packet},
       state) do
@@ -72,7 +72,7 @@ defmodule MAVLink.UDPConnection do
     {:noreply, state}
   end
   
-  def forward(%MAVLink.UDPConnection{
+  def forward(%MAVLink.UDPOutConnection{
       socket: socket, address: address, port: port},
       %Frame{version: 2, mavlink_2_raw: packet},
       state) do
