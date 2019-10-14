@@ -4,7 +4,7 @@ defmodule MAVLink.UDPInConnection do
   """
   
   require Logger
-  import MAVLink.Frame, only: [unpack_frame: 1, validate_and_unpack: 2]
+  import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, validate_and_unpack: 2]
   
   
   defstruct [
@@ -20,8 +20,11 @@ defmodule MAVLink.UDPInConnection do
   def handle_info({:udp, socket, source_addr, source_port, raw}, state) do
     receiving_connection = struct(MAVLink.UDPInConnection,
                           socket: socket, address: source_addr, port: source_port)
-    case unpack_frame(raw) do
-      {received_frame, _} -> # UDP sends frame per packet, so ignore rest
+    case binary_to_frame_and_tail(raw) do
+      :not_a_frame ->
+        # Noise or malformed frame
+        {:error, state}
+      {received_frame, _rest} -> # UDP sends frame per packet, so ignore rest
         case validate_and_unpack(received_frame, state.dialect) do
           {:ok, valid_frame} ->
             {:ok, receiving_connection, valid_frame, state}
@@ -34,9 +37,6 @@ defmodule MAVLink.UDPInConnection do
                 "#{Enum.join(Tuple.to_list(source_addr), ".")}:#{source_port} failed: #{Atom.to_string(reason)}")
               {:error, state}
         end
-      _ ->
-        # Noise or malformed frame
-        {:error, state}
     end
   end
   
