@@ -24,7 +24,7 @@ by adding `mavlink` to your list of dependencies in `mix.exs`:
 
 ## Current Status
 
-![](https://github.com/beamuav/elixir-mavlink/workflows/.github/workflows/elixir.yml/badge.svg)
+![](https://github.com/beamuav/elixir-mavlink/workflows/.github/workflows/Elixir%20CI/badge.svg)
 
 This library is not officially recognised or supported by MAVLink at this
 time. We aim over time to achieve complete compliance with the MAVLink 2.0
