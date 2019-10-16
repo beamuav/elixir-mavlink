@@ -1,0 +1,26 @@
+name: Elixir
+
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    container:
+      image: elixir:1.9.1-slim
+
+    steps:
+      - uses: actions/checkout@v1
+      - name: Install make
+        run: |
+          apt-get update
+          apt-get install make -y
+          apt-get install build-essential -y
+
+      - name: Install Dependencies
+        run: |
+          mix local.rebar --force
+          mix local.hex --force
+          mix deps.get
+      - name: Run Tests
+        run: mix test

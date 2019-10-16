@@ -6,7 +6,7 @@ defmodule MAVLink.Mixfile do
       app: :mavlink,
       version: "0.2.0",
       elixir: "~> 1.9",
-      start_permanent: Mix.env == :prod,
+      start_permanent: Mix.env() == :prod,
       description: description(),
       package: package(),
       aliases: aliases(),
@@ -16,8 +16,7 @@ defmodule MAVLink.Mixfile do
       consolidate_protocols: Mix.env() != :test
     ]
   end
-  
-  
+
   # See https://virviil.github.io/2016/10/26/elixir-testing-without-starting-supervision-tree/
   defp aliases do
     [
@@ -25,10 +24,9 @@ defmodule MAVLink.Mixfile do
     ]
   end
 
-  
   @doc """
   Override environment variables in config.exs e.g:
-  
+
   config :mavlink, dialect: APM
   config :mavlink, system_id: 1
   config :mavlink, component_id: 1
@@ -37,16 +35,18 @@ defmodule MAVLink.Mixfile do
   def application do
     [
       env: [
-        dialect: nil,       # Dialect module generated using mix mavlink
-        system_id: 255,     # Default to ground station
-        component_id: 250,  # Default to system control
+        # Dialect module generated using mix mavlink
+        dialect: nil,
+        # Default to ground station
+        system_id: 255,
+        # Default to system control
+        component_id: 250,
         connections: []
       ],
       mod: {MAVLink.Application, []},
       extra_applications: [:logger]
     ]
   end
-
 
   defp deps do
     [
@@ -56,12 +56,13 @@ defmodule MAVLink.Mixfile do
     ]
   end
 
-  
   defp description() do
-    "A Mix task to generate code from a MAVLink xml definition file, and an application that enables communication with other systems using the MAVLink 1.0 or 2.0 protocol over serial, UDP and TCP connections."
+    "A Mix task to generate code from a MAVLink xml definition file,
+    and an application that enables communication with other systems
+    using the MAVLink 1.0 or 2.0 protocol over serial, UDP and TCP
+    connections."
   end
-  
-  
+
   defp package() do
     [
       name: "mavlink",
@@ -71,5 +72,4 @@ defmodule MAVLink.Mixfile do
       maintainers: ["Robin Hilliard"]
     ]
   end
-  
 end
