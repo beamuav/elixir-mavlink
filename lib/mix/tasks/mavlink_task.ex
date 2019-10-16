@@ -264,11 +264,16 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
       wire_order = message.fields |> wire_order
       
       # Have to append "_f" to stop clash with reserved elixir words like "end"
-      unpack_binary_pattern = wire_order |> map(& downcase(&1.name) <> "_f::" <> type_to_binary(&1).pattern) |> join(",")
-      unpack_struct_fields = message.fields |> map(& downcase(&1.name) <> ": " <> unpack_field_code_fragment(&1, enums_by_name)) |> join(", ")
-      pack_binary_pattern = wire_order |> map(& pack_field_code_fragment(&1, enums_by_name, module_name)) |> join(",")
+      unpack_binary_pattern = wire_order
+                              |> map(& downcase(&1.name) <> "_f::"
+                                 <> (if &1.ordinality > 1, do: "binary-size(#{type_to_binary(&1.type).size * &1.ordinality})", else: type_to_binary(&1.type).pattern))
+                              |> join(",")
+      unpack_struct_fields = message.fields
+                             |> map(& downcase(&1.name) <> ": " <> unpack_field_code_fragment(&1, enums_by_name)) |> join(", ")
+      pack_binary_pattern = wire_order
+                            |> map(& pack_field_code_fragment(&1, enums_by_name, module_name)) |> join(",")
       crc_extra = message |> calculate_message_crc_extra
-      expected_payload_size = reduce(message.fields, 0, fn(field, sum) -> sum + type_to_binary(field).size end) # Without MAVLink 2 trailing 0 truncation
+      expected_payload_size = reduce(message.fields, 0, fn(field, sum) -> sum + type_to_binary(field.type).size end) # Without MAVLink 2 trailing 0 truncation
       %{
         msg_attributes:
           """
@@ -335,27 +340,27 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
     ~s[replace_trailing(#{downcase(name)}_f, <<0>>, "")]
   end
   
-  defp unpack_field_code_fragment(field, _) do
-    "unpack_array(#{downcase(field.name)}_f, fn(<<elem::#{type_to_binary(field).pattern},rest::binary>>) ->  {elem, rest} end)"
+  defp unpack_field_code_fragment(%{name: name, type: type}, _) do
+    "unpack_array(#{downcase(name)}_f, fn(<<elem::#{type_to_binary(type).pattern},rest::binary>>) ->  {elem, rest} end)"
   end
   
   
   # Pack Message Fields
   
-  defp pack_field_code_fragment(field=%{name: name, ordinality: 1, enum: ""}, _, _) do
-    "msg.#{downcase(name)}::#{type_to_binary(field).pattern}"
+  defp pack_field_code_fragment(%{name: name, ordinality: 1, enum: "", type: type}, _, _) do
+    "msg.#{downcase(name)}::#{type_to_binary(type).pattern}"
   end
   
-  defp pack_field_code_fragment(field=%{name: name, ordinality: 1, enum: enum, display: :bitmask}, _, module_name) when enum != "" do
-    "#{module_name}.pack_bitmask(msg.#{downcase(name)}, :#{enum}, &#{module_name}.encode/2)::#{type_to_binary(field).pattern}"
+  defp pack_field_code_fragment(%{name: name, ordinality: 1, enum: enum, display: :bitmask, type: type}, _, module_name) when enum != "" do
+    "#{module_name}.pack_bitmask(msg.#{downcase(name)}, :#{enum}, &#{module_name}.encode/2)::#{type_to_binary(type).pattern}"
   end
   
-  defp pack_field_code_fragment(field=%{name: name, ordinality: 1, enum: enum}, enums_by_name, module_name) do
+  defp pack_field_code_fragment(%{name: name, ordinality: 1, enum: enum, type: type}, enums_by_name, module_name) do
     case looks_like_a_bitmask?(enums_by_name[enum]) do
       true ->
-        "#{module_name}.pack_bitmask(msg.#{downcase(name)}, :#{enum}, &#{module_name}.encode/2)::#{type_to_binary(field).pattern}"
+        "#{module_name}.pack_bitmask(msg.#{downcase(name)}, :#{enum}, &#{module_name}.encode/2)::#{type_to_binary(type).pattern}"
       false ->
-        "#{module_name}.encode(msg.#{downcase(name)}, :#{enum})::#{type_to_binary(field).pattern}"
+        "#{module_name}.encode(msg.#{downcase(name)}, :#{enum})::#{type_to_binary(type).pattern}"
     end
   end
   
@@ -363,8 +368,8 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
     "MAVLink.Utils.pack_string(msg.#{downcase(name)}, #{ordinality})::binary-size(#{ordinality})"
   end
   
-  defp pack_field_code_fragment(field, _, _) do
-    "MAVLink.Utils.pack_array(msg.#{downcase(field.name)}, #{field.ordinality}, fn(elem) -> <<elem::#{type_to_binary(field).pattern}>> end)::binary-size(#{type_to_binary(field).size})"
+  defp pack_field_code_fragment(%{name: name, ordinality: ordinality, type: type}, _, _) do
+    "MAVLink.Utils.pack_array(msg.#{downcase(name)}, #{ordinality}, fn(elem) -> <<elem::#{type_to_binary(type).pattern}>> end)::binary-size(#{type_to_binary(type).size * ordinality})"
   end
   
   
@@ -423,18 +428,6 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
   
   
   # Map field types to a binary pattern code fragment and a size
-  defp type_to_binary(%{type: type, ordinality: 1}), do: type_to_binary(type)
-  defp type_to_binary(%{type: "char", ordinality: n}), do: %{pattern: "binary-size(#{n})", size: n}
-  defp type_to_binary(%{type: "uint8_t", ordinality: n}), do: %{pattern: "binary-size(#{n})", size: n}
-  defp type_to_binary(%{type: "int8_t", ordinality: n}), do: %{pattern: "binary-size(#{n})", size: n}
-  defp type_to_binary(%{type: "uint16_t", ordinality: n}), do: %{pattern: "binary-size(#{n * 2})", size: n * 2}
-  defp type_to_binary(%{type: "int16_t", ordinality: n}), do: %{pattern: "binary-size(#{n * 2})", size: n * 2}
-  defp type_to_binary(%{type: "uint32_t", ordinality: n}), do: %{pattern: "binary-size(#{n * 4})", size: n * 2}
-  defp type_to_binary(%{type: "int32_t", ordinality: n}), do: %{pattern: "binary-size(#{n * 4})", size: n * 4}
-  defp type_to_binary(%{type: "uint64_t", ordinality: n}), do: %{pattern: "binary-size(#{n * 8})", size: n * 8}
-  defp type_to_binary(%{type: "int64_t", ordinality: n}), do: %{pattern: "binary-size(#{n * 8})", size: n * 8}
-  defp type_to_binary(%{type: "float", ordinality: n}), do: %{pattern: "binary-size(#{n * 4})", size: n * 4}
-  defp type_to_binary(%{type: "double", ordinality: n}), do: %{pattern: "binary-size(#{n * 8})", size: n * 8}
   defp type_to_binary("char"), do: %{pattern: "integer-size(8)", size: 1}
   defp type_to_binary("uint8_t"), do: %{pattern: "integer-size(8)", size: 1}
   defp type_to_binary("int8_t"), do: %{pattern: "signed-integer-size(8)", size: 1}
