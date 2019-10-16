@@ -143,7 +143,7 @@ defmodule MAVLink.Frame do
           payload_truncated_length = 8 * (expected_length - frame.payload_length)
           case apply(dialect, :unpack, [
             frame.message_id,
-            frame.payload <> <<0::size(payload_truncated_length)>>]) do
+            frame.payload <> (if payload_truncated_length > 0, do: <<0::size(payload_truncated_length)>>, else: <<>>)]) do
             {:ok, message} ->
               if targeted? do
                 {:ok, struct(frame, [
@@ -162,7 +162,6 @@ defmodule MAVLink.Frame do
                   crc_extra: crc_extra
                 ])}
               end
-              
             _ ->
               :failed_to_unpack
           end
