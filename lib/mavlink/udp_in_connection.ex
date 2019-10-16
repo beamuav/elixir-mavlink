@@ -6,6 +6,7 @@ defmodule MAVLink.UDPInConnection do
   require Logger
   import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, validate_and_unpack: 2]
   
+  alias MAVLink.Frame
   
   defstruct [
     address: nil,
@@ -47,12 +48,27 @@ defmodule MAVLink.UDPInConnection do
       [:binary, ip: address, active: :true]
     )
     
-    # Do not add UDP In to connections, we don't want to forward to ourselves
+    # Do not add to connections, we don't want to forward to ourselves
+    # Router.update_route_info() will add connections for other parties that
+    # connect to this socket
     state
   end
   
   
-  # Do not forward to ourselves...
-  def forward(%MAVLink.UDPInConnection{}, _, state), do: {:noreply, state}
+  def forward(%MAVLink.UDPInConnection{
+      socket: socket, address: address, port: port},
+      %Frame{version: 1, mavlink_1_raw: packet},
+      state) do
+    :gen_udp.send(socket, address, port, packet)
+    {:noreply, state}
+  end
+  
+  def forward(%MAVLink.UDPInConnection{
+      socket: socket, address: address, port: port},
+      %Frame{version: 2, mavlink_2_raw: packet},
+      state) do
+    :gen_udp.send(socket, address, port, packet)
+    {:noreply, state}
+  end
 
 end

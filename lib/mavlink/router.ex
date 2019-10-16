@@ -284,14 +284,16 @@ defmodule MAVLink.Router do
          %Frame{
            source_system: source_system,
            source_component: source_component},
-         state=%Router{routes: routes}) do
+         state=%Router{routes: routes, connections: connections}) do
     struct(
       state,
       [
         routes: Map.put(
           routes,
           {source_system, source_component},
-          receiving_connection)
+          receiving_connection),
+        connections: MapSet.put(
+          connections, receiving_connection)
       ]
     )
   end
@@ -316,6 +318,7 @@ defmodule MAVLink.Router do
   
   
   # Delegate sending a message to non-local connection-type specific code
+  defp forward(connection=%UDPInConnection{}, frame, state), do: UDPInConnection.forward(connection, frame, state)
   defp forward(connection=%UDPOutConnection{}, frame, state), do: UDPOutConnection.forward(connection, frame, state)
  
   #  Forward a message to a local subscribing Elixir process.
