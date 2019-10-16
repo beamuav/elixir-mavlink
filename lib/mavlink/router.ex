@@ -277,7 +277,9 @@ defmodule MAVLink.Router do
   end
   
   
-  # Map system/component ids to connections on which they have been seen
+  # Map system/component ids to connections on which they have been seen for targeted messages
+  # Keep a list of all connections we have received messages from for broadcast messages
+  # Update nothing for messages we sent ourselves
   defp update_route_info(:local, _, state), do: state
   
   defp update_route_info(receiving_connection,
@@ -321,7 +323,7 @@ defmodule MAVLink.Router do
   defp forward(connection=%UDPInConnection{}, frame, state), do: UDPInConnection.forward(connection, frame, state)
   defp forward(connection=%UDPOutConnection{}, frame, state), do: UDPOutConnection.forward(connection, frame, state)
  
-  #  Forward a message to a local subscribing Elixir process.
+  #  Forward a message to a local subscribed Elixir process.
   defp forward(:local, %Frame{
         source_system: source_system,
         source_component: source_component,
