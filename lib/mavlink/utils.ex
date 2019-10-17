@@ -33,8 +33,10 @@ defmodule MAVLink.Utils do
       int8_t:                   4,
       char:                     4
     }
-    
-    sort_by(fields, &Map.fetch(type_order_map, String.to_atom(&1.type)))
+    sort_by(
+      Enum.filter(fields, & !&1.is_extension),
+      &Map.fetch(type_order_map, String.to_atom(&1.type)))
+    ++ Enum.filter(fields, & &1.is_extension)
     
   end
   
