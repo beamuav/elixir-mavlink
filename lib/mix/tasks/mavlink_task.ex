@@ -273,7 +273,8 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
       pack_binary_pattern = wire_order
                             |> map(& pack_field_code_fragment(&1, enums_by_name, module_name)) |> join(",")
       crc_extra = message |> calculate_message_crc_extra
-      expected_payload_size = reduce(message.fields, 0, fn(field, sum) -> sum + type_to_binary(field.type).size end) # Without MAVLink 2 trailing 0 truncation
+      #TODO EPS will be different for MAVLink 1 (no extension fields) and MAVLink 2.
+      expected_payload_size = reduce(message.fields, 0, fn(field, sum) -> sum + type_to_binary(field.type).size * field.ordinality end) # Before MAVLink 2 trailing 0 truncation
       %{
         msg_attributes:
           """
