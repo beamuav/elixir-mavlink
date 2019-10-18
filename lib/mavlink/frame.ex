@@ -119,7 +119,6 @@ defmodule MAVLink.Frame do
   def binary_to_frame_and_tail(<<>>), do: :not_a_frame
   
   
-  # TODO MAVLink.Dialect protocol to replace "module", change MAVLink.Pack to MAVLink.Message?
   @spec validate_and_unpack(MAVLink.Frame, module) :: {:ok, MAVLink.Frame} | :failed_to_unpack | :checksum_invalid | :unknown_message
   def validate_and_unpack(frame, dialect) do
     case apply(dialect, :msg_attributes, [frame.message_id]) do
@@ -163,12 +162,15 @@ defmodule MAVLink.Frame do
                 ])}
               end
             _ ->
+              Logger.warn("validate_and_unpack: Failed to unpack #{inspect(frame)}")
               :failed_to_unpack
           end
         else
+          Logger.warn("validate_and_unpack: Checksum invalid #{inspect(frame)}")
           :checksum_invalid
         end
       _ ->
+        Logger.warn("validate_and_unpack: Unknown message #{inspect(frame)}")
         :unknown_message
     end
   end
