@@ -268,13 +268,23 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
                               |> map(& downcase(&1.name) <> "_f::"
                                  <> (if &1.ordinality > 1, do: "binary-size(#{type_to_binary(&1.type).size * &1.ordinality})", else: type_to_binary(&1.type).pattern))
                               |> join(",")
+      
       unpack_struct_fields = message.fields
-                             |> map(& downcase(&1.name) <> ": " <> unpack_field_code_fragment(&1, enums_by_name)) |> join(", ")
+                             |> map(& downcase(&1.name) <> ": " <> unpack_field_code_fragment(&1, enums_by_name))
+                             |> join(", ")
+      
       pack_binary_pattern = wire_order
-                            |> map(& pack_field_code_fragment(&1, enums_by_name, module_name)) |> join(",")
+                            |> map(& pack_field_code_fragment(&1, enums_by_name, module_name))
+                            |> join(",")
+      
       crc_extra = message |> calculate_message_crc_extra
-      #TODO EPS will be different for MAVLink 1 (no extension fields) and MAVLink 2.
-      expected_payload_size = reduce(message.fields, 0, fn(field, sum) -> sum + type_to_binary(field.type).size * field.ordinality end) # Before MAVLink 2 trailing 0 truncation
+      
+      # Including extension fields - currently only used for MAVLink 2 payload truncation
+      expected_payload_size = reduce(
+        message.fields,
+        0,
+        fn(field, sum) -> sum + type_to_binary(field.type).size * field.ordinality end) # Before MAVLink 2 trailing 0 truncation
+    
       %{
         msg_attributes:
           """
