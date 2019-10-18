@@ -24,6 +24,7 @@ defmodule MAVLink.UDPInConnection do
     case binary_to_frame_and_tail(raw) do
       :not_a_frame ->
         # Noise or malformed frame
+        Logger.warn("UDPInConnection.handle_info: Not a frame #{inspect(raw)}")
         {:error, state}
       {received_frame, _rest} -> # UDP sends frame per packet, so ignore rest
         case validate_and_unpack(received_frame, state.dialect) do
@@ -34,7 +35,7 @@ defmodule MAVLink.UDPInConnection do
             {:ok, receiving_connection, received_frame, state}
           reason ->
               Logger.warn(
-                "UDP MAVLink frame received from " <>
+                "UDPInConnection.handle_info: frame received from " <>
                 "#{Enum.join(Tuple.to_list(source_addr), ".")}:#{source_port} failed: #{Atom.to_string(reason)}")
               {:error, state}
         end
