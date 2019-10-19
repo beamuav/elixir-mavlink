@@ -51,11 +51,10 @@ defmodule MAVLink.UDPInConnection do
   
   
   def connect(["udpin", address, port], state) do
-    {:ok, _} = :gen_udp.open(
+    {:ok, _sock} = :gen_udp.open(
       port,
       [:binary, ip: address, active: :true]
     )
-    
     # Do not add to connections, we don't want to forward to ourselves
     # Router.update_route_info() will add connections for other parties that
     # connect to this socket
