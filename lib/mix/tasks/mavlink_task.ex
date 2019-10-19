@@ -259,61 +259,95 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
 
     for message <- messages do
       message_module_name = message.name |> module_case
+      enforce_field_names = Enum.filter(message.fields, & !&1.is_extension) |> map(& ":" <> downcase(&1.name)) |> join(", ")
       field_names = message.fields |> map(& ":" <> downcase(&1.name)) |> join(", ")
       field_types = message.fields |> map(& downcase(&1.name) <> ": " <> field_type(&1, module_name)) |> join(", ")
       wire_order = message.fields |> wire_order
       
       # Have to append "_f" to stop clash with reserved elixir words like "end"
-      unpack_binary_pattern = wire_order
-                              |> map(& downcase(&1.name) <> "_f::"
-                                 <> (if &1.ordinality > 1, do: "binary-size(#{type_to_binary(&1.type).size * &1.ordinality})", else: type_to_binary(&1.type).pattern))
-                              |> join(",")
+      [unpack_binary_pattern, unpack_binary_pattern_ext] = for field_list <- wire_order do
+        field_list
+        |> map(& downcase(&1.name) <> "_f::"
+           <> (if &1.ordinality > 1, do: "binary-size(#{type_to_binary(&1.type).size * &1.ordinality})", else: type_to_binary(&1.type).pattern))
+        |> join(",")
+      end
       
-      unpack_struct_fields = message.fields
-                             |> map(& downcase(&1.name) <> ": " <> unpack_field_code_fragment(&1, enums_by_name))
-                             |> join(", ")
+      [unpack_struct_fields, unpack_struct_fields_ext] = for field_list <- wire_order do
+        field_list
+        |> map(& downcase(&1.name) <> ": " <> unpack_field_code_fragment(&1, enums_by_name))
+        |> join(", ")
+      end
       
-      pack_binary_pattern = wire_order
-                            |> map(& pack_field_code_fragment(&1, enums_by_name, module_name))
-                            |> join(",")
-      
-      crc_extra = message |> calculate_message_crc_extra
+      [pack_binary_pattern, pack_binary_pattern_ext] = for field_list <- wire_order do
+        field_list
+        |> map(& pack_field_code_fragment(&1, enums_by_name, module_name))
+        |> join(",")
+      end
+  
+      crc_extra = calculate_message_crc_extra(message)
       
       # Including extension fields - currently only used for MAVLink 2 payload truncation
       expected_payload_size = reduce(
         message.fields,
         0,
         fn(field, sum) -> sum + type_to_binary(field.type).size * field.ordinality end) # Before MAVLink 2 trailing 0 truncation
-    
-      %{
-        msg_attributes:
-          """
-            def msg_attributes(#{message.id}), do: {:ok, #{crc_extra}, #{expected_payload_size}, #{any?(message.fields, & &1.name == "target_system")}}
-          """,
-        unpack:
-          """
-            def unpack(#{message.id}, <<#{unpack_binary_pattern}>>), do: {:ok, %#{module_name}.Message.#{message_module_name}{#{unpack_struct_fields}}}
-          """,
-        module:
-          """
-          defmodule #{module_name}.Message.#{message_module_name} do
-            @enforce_keys [#{field_names}]
-            defstruct [#{field_names}]
-            @typedoc "#{escape(message.description)}"
-            @type t :: %#{module_name}.Message.#{message_module_name}{#{field_types}}
-            defimpl MAVLink.Message do
-              def pack(msg), do: {:ok, #{message.id}, #{module_name}.msg_attributes(#{message.id}), <<#{pack_binary_pattern}>>}
+      
+      if message.has_ext_fields do
+        %{
+          msg_attributes:
+            """
+              def msg_attributes(#{message.id}), do: {:ok, #{crc_extra}, #{expected_payload_size}, #{any?(message.fields, & &1.name == "target_system")}}
+            """,
+          unpack:
+            """
+              def unpack(#{message.id}, 1, <<#{unpack_binary_pattern}>>), do: {:ok, %#{module_name}.Message.#{message_module_name}{#{unpack_struct_fields}}}
+              def unpack(#{message.id}, 2, <<#{unpack_binary_pattern},#{unpack_binary_pattern_ext}>>), do: {:ok, %#{module_name}.Message.#{message_module_name}{#{unpack_struct_fields},#{unpack_struct_fields_ext}}}
+            """,
+          module:
+            """
+            defmodule #{module_name}.Message.#{message_module_name} do
+              @enforce_keys [#{enforce_field_names}]
+              defstruct [#{field_names}]
+              @typedoc "#{escape(message.description)}"
+              @type t :: %#{module_name}.Message.#{message_module_name}{#{field_types}}
+              defimpl MAVLink.Message do
+                def pack(msg, 1), do: {:ok, #{message.id}, #{module_name}.msg_attributes(#{message.id}), <<#{pack_binary_pattern}>>}
+                def pack(msg, 2), do: {:ok, #{message.id}, #{module_name}.msg_attributes(#{message.id}), <<#{pack_binary_pattern},#{pack_binary_pattern_ext}>>}
+              end
             end
-          end
-          """
-      }
+            """
+        }
+      else
+        %{
+          msg_attributes:
+            """
+              def msg_attributes(#{message.id}), do: {:ok, #{crc_extra}, #{expected_payload_size}, #{any?(message.fields, & &1.name == "target_system")}}
+            """,
+          unpack:
+            """
+              def unpack(#{message.id}, _, <<#{unpack_binary_pattern}>>), do: {:ok, %#{module_name}.Message.#{message_module_name}{#{unpack_struct_fields}}}
+            """,
+          module:
+            """
+            defmodule #{module_name}.Message.#{message_module_name} do
+              @enforce_keys [#{enforce_field_names}]
+              defstruct [#{field_names}]
+              @typedoc "#{escape(message.description)}"
+              @type t :: %#{module_name}.Message.#{message_module_name}{#{field_types}}
+              defimpl MAVLink.Message do
+                def pack(msg, _), do: {:ok, #{message.id}, #{module_name}.msg_attributes(#{message.id}), <<#{pack_binary_pattern}>>}
+              end
+            end
+            """
+        }
+      end
     end
   end
   
   @spec calculate_message_crc_extra(MAVLink.Parser.message_description) :: MAVLink.Types.crc_extra
   defp calculate_message_crc_extra(message) do
     reduce(
-      message.fields |> wire_order |> filter(& !&1.is_extension),
+      message.fields |> wire_order |> hd, # Do not include extension fields
       x25_crc(message.name <> " "),
       fn(field, crc) ->
         case field.ordinality do
