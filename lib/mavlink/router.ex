@@ -144,7 +144,7 @@ defmodule MAVLink.Router do
     # Elixir Protocol mechanism. Work around is comment out one of the message
     # definitions and regenerate or wait for an Elixir fix, if they agree it's a problem.
     try do
-      {:ok, message_id, {:ok, crc_extra, _, targeted?}, payload} = Message.pack(message)
+      {:ok, message_id, {:ok, crc_extra, _, targeted?}, payload} = Message.pack(message, version)
       {target_system, target_component} = if targeted? do
         {message.target_system, message.target_component}
       else
