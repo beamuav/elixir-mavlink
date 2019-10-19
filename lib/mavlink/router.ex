@@ -23,7 +23,7 @@ defmodule MAVLink.Router do
   alias MAVLink.Message
   alias MAVLink.Router
   alias MAVLink.SerialConnection
-  alias MAVLink.TCPConnection
+  alias MAVLink.TCPOutConnection
   alias MAVLink.Types
   alias MAVLink.UDPInConnection
   alias MAVLink.UDPOutConnection
@@ -42,7 +42,7 @@ defmodule MAVLink.Router do
     system: 25,                               # Default to ground station
     component: 250,
     connection_strings: [],                   # Connection descriptions from user
-    connections: MapSet.new(),                # %{MAVLink.UDP|TCP|Serial_Connection}
+    connections: %{},                         # %{socket|port: MAVLink.*_Connection}
     routes: %{},                              # Connection and MAVLink version tuple keyed by MAVLink addresses
     subscriptions: [],                        # Local Connection Elixir process queries
     sequence_number: 0,                       # Sequence number of next sent message
@@ -55,13 +55,15 @@ defmodule MAVLink.Router do
                system: non_neg_integer,
                component: non_neg_integer,
                connection_strings: [ String.t ],
-               connections: %MapSet{},
+               connections: %{},
                routes: %{mavlink_address: {mavlink_connection, Types.version}},
                subscriptions: [],
                sequence_number: Types.sequence_number,
                uarts: [pid]
              }
   
+             
+             
              
   ##############
   # Router API #
@@ -136,29 +138,40 @@ defmodule MAVLink.Router do
   """
   def pack_and_send(message, version \\ 2) do
     # We can only pack payload at this point because we need
-    # router state to get source system/component and sequence number
-    {:ok, message_id, {:ok, crc_extra, _, targeted?}, payload} = Message.pack(message)
-    {target_system, target_component} = if targeted? do
-      {message.target_system, message.target_component}
-    else
-      {0, 0}
+    # router state to get source system/component and sequence number for frame
+    # Need to catch Protocol.UndefinedError
+    # Happens with SimState (Common) and Simstate (APM) messages confusing
+    # Elixir Protocol mechanism. Work around is comment out one of the message
+    # definitions and regenerate or wait for an Elixir fix, if they agree it's a problem.
+    try do
+      {:ok, message_id, {:ok, crc_extra, _, targeted?}, payload} = Message.pack(message)
+      {target_system, target_component} = if targeted? do
+        {message.target_system, message.target_component}
+      else
+        {0, 0}
+      end
+      GenServer.cast(
+        __MODULE__,
+        {
+          :send,
+          struct(Frame, [
+            version: version,
+            message_id: message_id,
+            target_system: target_system,
+            target_component: target_component,
+            targeted?: targeted?,
+            message: message,
+            payload: payload,
+            crc_extra: crc_extra])
+        }
+      )
+      :ok
+    rescue
+      Protocol.UndefinedError ->
+        {:error, :protocol_undefined}
     end
-    GenServer.cast(
-      __MODULE__,
-      {
-        :send,
-        struct(Frame, [
-          version: version,
-          message_id: message_id,
-          target_system: target_system,
-          target_component: target_component,
-          targeted?: targeted?,
-          message: message,
-          payload: payload,
-          crc_extra: crc_extra])
-      }
-    )
   end
+  
   
   
   
@@ -198,48 +211,46 @@ defmodule MAVLink.Router do
   end
   
 
-  #Unsubscribe dead subscribers first, then process incoming messages from connection ports
   @impl true
   def handle_info({:DOWN, _, :process, pid, _}, state), do: subscriber_down(pid, state)
-  def handle_info(message = {:udp, _, _, _, _}, state), do: {:noreply, UDPInConnection.handle_info(message, state) |> route()}
-  def handle_info(message = {:tcp, _, _, _, _}, state), do: {:noreply, TCPConnection.handle_info(message, state) |> route()}
-  def handle_info(message = {:serial, _, _, _, _}, state), do: {:noreply, SerialConnection.handle_info(message, state) |> route()}
+  
+  # Process incoming messages from connection ports
+  def handle_info(message = {:udp, socket, address, port, _}, state) do
+    {
+       :noreply,
+       UDPInConnection.handle_info(message, state.connections[{socket, address, port}], state.dialect)
+       |> update_route_info(state)
+       |> route
+    }
+  end
+  
+  def handle_info(message = {:tcp, socket, _}, state) do
+    {
+      :noreply,
+      TCPOutConnection.handle_info(message, state.connections[socket], state.dialect)
+      |> update_route_info(state)
+      |> route
+    }
+  end
+  
+#  def handle_info(message = {:serial, port, _, _, _}, state) do
+#    {
+#      :noreply,
+#      SerialConnection.handle_info(message, state.connections[port], state.dialect)
+#      |> update_route_info(state)
+#      |> route
+#    }
+#  end
+  
   def handle_info(_, state), do: {:noreply, state}
   
   
-  # Broadcast un-targeted messages to all connections except the
-  # source we received the message from
-  def route({:ok,
-        source_connection,
-        frame=%Frame{target_system: 0, target_component: 0},
-        state=%Router{connections: connections}}) do
-    for connection <- connections do
-      unless match?(^connection, source_connection) do
-        forward(connection, frame, state)
-      end
-    end
-    forward(:local, frame, state)
-    update_route_info(source_connection, frame, state)
-  end
-  
-  # Only send targeted messages to observed system/components
-  def route({:ok,
-        source_connection,
-        frame=%Frame{target_system: target_system, target_component: target_component},
-        state=%Router{}}) do
-    for connection <- matching_system_components(target_system, target_component, state) do
-      forward(connection, frame, state)
-    end
-    forward(:local, frame, state)
-    update_route_info(source_connection, frame, state)
-  end
-  
-  def route({:error, state}), do: state
   
   
   ####################
   # Helper Functions #
   ####################
+  
   
   defp connect(connection_string, state) when is_binary(connection_string) do
     connect(String.split(connection_string, [":", ","]), state)
@@ -248,8 +259,124 @@ defmodule MAVLink.Router do
   defp connect(tokens = ["serial" | _], state), do: SerialConnection.connect(tokens, state)
   defp connect(tokens = ["udpin" | _], state), do: UDPInConnection.connect(validate_address_and_port(tokens), state)
   defp connect(tokens = ["udpout" | _], state), do: UDPOutConnection.connect(validate_address_and_port(tokens), state)
-  defp connect(tokens = ["tcp" | _], state), do: TCPConnection.connect(validate_address_and_port(tokens), state)
+  defp connect(tokens = ["tcpout" | _], state), do: TCPOutConnection.connect(validate_address_and_port(tokens), state)
   defp connect([invalid_protocol | _], _), do: raise(ArgumentError, message: "invalid protocol #{invalid_protocol}")
+  
+  
+  # Map system/component ids to connections on which they have been seen for targeted messages
+  # Keep a list of all connections we have received messages from for broadcast messages
+  defp update_route_info({:ok,
+        source_connection_key,
+        source_connection,
+        frame=%Frame{
+          source_system: source_system,
+          source_component: source_component
+        }
+      },
+      state=%Router{routes: routes, connections: connections}) do
+    {
+      :ok,
+      source_connection_key,
+      frame,
+      struct(
+        state,
+        [
+          routes: Map.put(
+            routes,
+            {source_system, source_component},
+            source_connection_key),
+          connections: Map.put(
+            connections,
+            source_connection_key,
+            source_connection)
+        ]
+      )
+    }
+    
+  end
+  
+  # Connections buffers etc still need to be updated if there is an error
+  defp update_route_info(
+         {:error, reason, connection_key, connection},
+         state=%Router{connections: connections}) do
+    {
+      :error,
+      reason,
+      struct(
+        state,
+        [
+          connections: Map.put(
+            connections,
+            connection_key,
+            connection
+          )
+        ]
+      )
+    }
+  end
+  
+  # Broadcast un-targeted messages to all connections except the
+  # source we received the message from
+  defp route({:ok,
+        source_connection_key,
+        frame=%Frame{target_system: 0, target_component: 0},
+        state=%Router{connections: connections, subscriptions: subscriptions}}) do
+    for {connection_key, connection} <- connections do
+      unless match?(^connection_key, source_connection_key) do
+        forward(connection, frame)
+      end
+    end
+    forward(:local, frame, subscriptions)
+    state
+  end
+  
+  # Only send targeted messages to observed system/components
+  defp route({:ok,
+        _,
+        frame=%Frame{target_system: target_system, target_component: target_component},
+        state=%Router{connections: connections}}) do
+    for connection_key <- matching_system_components(target_system, target_component, state) do
+      forward(connections[connection_key], frame)
+    end
+    forward(:local, frame, state.subscriptions)
+    state
+  end
+  
+  defp route({:error, _reason, state=%Router{}}), do: state
+  
+  
+  # Delegate sending a message to non-local connection-type specific code
+  defp forward(connection=%UDPInConnection{}, frame), do: UDPInConnection.forward(connection, frame)
+  defp forward(connection=%UDPOutConnection{}, frame), do: UDPOutConnection.forward(connection, frame)
+  defp forward(connection=%TCPOutConnection{}, frame), do: TCPOutConnection.forward(connection, frame)
+ 
+  #  Forward a message to a local subscribed Elixir process.
+  #  TODO after all the changes perhaps we could try factoring out LocalConnection again...
+  defp forward(:local, %Frame{
+        source_system: source_system,
+        source_component: source_component,
+        target_system: target_system,
+        target_component: target_component,
+        targeted?: targeted?,
+        message: message = %{__struct__: message_type}
+      }, subscriptions) do
+    for {
+          %{
+            message: q_message_type,
+            source_system: q_source_system,
+            source_component: q_source_component,
+            target_system: q_target_system,
+            target_component: q_target_component},
+          pid} <- subscriptions do
+      if (q_message_type == nil or q_message_type == message_type)
+          and (q_source_system == 0 or q_source_system == source_system)
+          and (q_source_component == 0 or q_source_component == source_component)
+          and (q_target_system == 0 or (targeted? and q_target_system == target_system))
+          and (q_target_component == 0 or (targeted? and q_target_component == target_component)) do
+        send(pid, message)
+      end
+    end
+  end
 
   
   defp validate_address_and_port([protocol, address, port]) do
@@ -264,6 +391,27 @@ defmodule MAVLink.Router do
   end
   
   
+  # Subscription request from subscriber
+  defp subscribe(query, pid, state) do
+    # Monitor so that we can unsubscribe dead processes
+    Process.monitor(pid)
+    # Uniq prevents duplicate subscriptions
+    {:noreply, %Router{state | subscriptions: Enum.uniq([{query, pid} | state.subscriptions])}}
+  end
+  
+  
+  # Unsubscribe request from subscriber
+  defp unsubscribe(pid, state) do
+    {:noreply, %Router{state | subscriptions: filter(state.subscriptions, & not match?({_, ^pid}, &1))}}
+  end
+  
+  
+  # Automatically unsubscribe a dead subscriber process
+  defp subscriber_down(pid, state) do
+    {:noreply, %Router{state | subscriptions: filter(state.subscriptions, & not match?({_, ^pid}, &1))}}
+  end
+  
+  
   # Known system/components matching target with 0 wildcard
   defp matching_system_components(q_system, q_component,
          %Router{routes: routes}) do
@@ -274,80 +422,6 @@ defmodule MAVLink.Router do
           (q_component == 0 or q_component == cid)
       end
     )
-  end
-  
-  
-  # Map system/component ids to connections on which they have been seen for targeted messages
-  # Keep a list of all connections we have received messages from for broadcast messages
-  # Update nothing for messages we sent ourselves
-  defp update_route_info(:local, _, state), do: state
-  
-  defp update_route_info(receiving_connection,
-         %Frame{
-           source_system: source_system,
-           source_component: source_component},
-         state=%Router{routes: routes, connections: connections}) do
-    struct(
-      state,
-      [
-        routes: Map.put(
-          routes,
-          {source_system, source_component},
-          receiving_connection),
-        connections: MapSet.put(
-          connections, receiving_connection)
-      ]
-    )
-  end
-  
-  
-  defp subscribe(query, pid, state) do
-    # Monitor so that we can unsubscribe dead processes
-    Process.monitor(pid)
-    # Uniq prevents duplicate subscriptions
-    {:noreply, %Router{state | subscriptions: Enum.uniq([{query, pid} | state.subscriptions])}}
-  end
-  
-  
-  defp unsubscribe(pid, state) do
-    {:noreply, %Router{state | subscriptions: filter(state.subscriptions, & not match?({_, ^pid}, &1))}}
-  end
-  
-  
-  defp subscriber_down(pid, state) do
-    {:noreply, %Router{state | subscriptions: filter(state.subscriptions, & not match?({_, ^pid}, &1))}}
-  end
-  
-  
-  # Delegate sending a message to non-local connection-type specific code
-  defp forward(connection=%UDPInConnection{}, frame, state), do: UDPInConnection.forward(connection, frame, state)
-  defp forward(connection=%UDPOutConnection{}, frame, state), do: UDPOutConnection.forward(connection, frame, state)
- 
-  #  Forward a message to a local subscribed Elixir process.
-  defp forward(:local, %Frame{
-        source_system: source_system,
-        source_component: source_component,
-        target_system: target_system,
-        target_component: target_component,
-        targeted?: targeted?,
-        message: message = %{__struct__: message_type}
-      }, state) do
-    for {
-          %{
-            message: q_message_type,
-            source_system: q_source_system,
-            source_component: q_source_component,
-            target_system: q_target_system,
-            target_component: q_target_component},
-          pid} <- state.subscriptions do
-      if (q_message_type == nil or q_message_type == message_type)
-          and (q_source_system == 0 or q_source_system == source_system)
-          and (q_source_component == 0 or q_source_component == source_component)
-          and (q_target_system == 0 or (targeted? and q_target_system == target_system))
-          and (q_target_component == 0 or (targeted? and q_target_component == target_component)) do
-        send(pid, message)
-      end
-    end
   end
   
 end
