@@ -97,6 +97,7 @@ defmodule MAVLink.Utils do
   
   
   @doc "Helper function for decode() to unpack array fields"
+  # TODO bitstring generator instead? https://elixir-lang.org/getting-started/comprehensions.html
   @spec unpack_array(binary(), (binary()-> {any(), list()})) :: list()
   def unpack_array(bin, fun), do: unpack_array(bin, fun, [])
   def unpack_array(<<>>, _, lst), do: reverse(lst)
