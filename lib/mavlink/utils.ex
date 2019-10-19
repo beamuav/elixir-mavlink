@@ -16,8 +16,10 @@ defmodule MAVLink.Utils do
   @doc """
   Sort parsed message fields into wire order according
   to https://mavlink.io/en/guide/serialization.html
+  List extension fields separately so that we can
+  not include them for MAVLink 1 messages
   """
-  @spec wire_order([ ]) :: [ ]
+  @spec wire_order([ ]) :: {[ ], [ ]}
   def wire_order(fields) do
     type_order_map = %{
       uint64_t:                 1,
@@ -33,11 +35,13 @@ defmodule MAVLink.Utils do
       int8_t:                   4,
       char:                     4
     }
-    sort_by(
-      Enum.filter(fields, & !&1.is_extension),
-      &Map.fetch(type_order_map, String.to_atom(&1.type)))
-    ++ Enum.filter(fields, & &1.is_extension)
-    
+    [
+      sort_by(
+        Enum.filter(fields, & !&1.is_extension),
+        &Map.fetch(type_order_map, String.to_atom(&1.type))
+      ),
+      Enum.filter(fields, & &1.is_extension)
+    ]
   end
   
   
