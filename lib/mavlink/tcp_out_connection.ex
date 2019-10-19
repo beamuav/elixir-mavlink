@@ -4,6 +4,8 @@ defmodule MAVLink.TCPOutConnection do
   Typically used to connect to SITL on port 5760
   """
   
+  @smallest_mavlink_message 8
+  
   require Logger
   alias MAVLink.Frame
   
@@ -24,7 +26,7 @@ defmodule MAVLink.TCPOutConnection do
         {:error, :incomplete_frame, socket, struct(receiving_connection, [buffer: rest])}
       {received_frame, rest} ->
         # Rest could be a message, return later to try emptying the buffer
-        if byte_size(rest) >= 8, do: send self(), {:tcp, socket, <<>>}
+        if byte_size(rest) >= @smallest_mavlink_message, do: send self(), {:tcp, socket, <<>>}
         case validate_and_unpack(received_frame, dialect) do
           {:ok, valid_frame} ->
             {:ok, socket, struct(receiving_connection, [buffer: rest]), valid_frame}
