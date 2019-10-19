@@ -142,6 +142,7 @@ defmodule MAVLink.Frame do
           payload_truncated_length = 8 * (expected_length - frame.payload_length)  # Only used to undo MAVLink 2 payload truncation
           case apply(dialect, :unpack, [
             frame.message_id,
+            frame.version,
             frame.payload <> (if payload_truncated_length > 0 and frame.version > 1, do: <<0::size(payload_truncated_length)>>, else: <<>>)]) do
             {:ok, message} ->
               if targeted? do
