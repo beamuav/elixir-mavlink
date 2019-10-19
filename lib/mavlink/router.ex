@@ -88,6 +88,7 @@ defmodule MAVLink.Router do
     source_component: integer 0..255
     target_system:    integer 0..255
     target_component: integer 0..255
+    as_frame:         true|false (default false)
     
   For example:
   
@@ -109,7 +110,8 @@ defmodule MAVLink.Router do
             source_system: 0,
             source_component: 0,
             target_system: 0,
-            target_component: 0
+            target_component: 0,
+            as_frame: false
           ]
           |> Keyword.merge(query)
           |> Enum.into(%{}),
@@ -137,12 +139,8 @@ defmodule MAVLink.Router do
   silently.
   """
   def pack_and_send(message, version \\ 2) do
-    # We can only pack payload at this point because we need
-    # router state to get source system/component and sequence number for frame
-    # Need to catch Protocol.UndefinedError
-    # Happens with SimState (Common) and Simstate (APM) messages confusing
-    # Elixir Protocol mechanism. Work around is comment out one of the message
-    # definitions and regenerate or wait for an Elixir fix, if they agree it's a problem.
+    # We can only pack payload at this point because we nee router state to get source
+    # system/component and sequence number for frame
     try do
       {:ok, message_id, {:ok, crc_extra, _, targeted?}, payload} = Message.pack(message, version)
       {target_system, target_component} = if targeted? do
@@ -167,6 +165,10 @@ defmodule MAVLink.Router do
       )
       :ok
     rescue
+      # Need to catch Protocol.UndefinedError - happens with SimState (Common) and Simstate (APM)
+      # messages because non-case-sensitive filesystems (including OSX thanks @noobz) can't tell
+      # the difference between generated module beam files. Work around is comment out one of the
+      # message definitions and regenerate.
       Protocol.UndefinedError ->
         {:error, :protocol_undefined}
     end
@@ -198,16 +200,29 @@ defmodule MAVLink.Router do
     unsubscribe(pid, state)
   end
   
-  def handle_cast({:send, frame}, state) do
-    updated_frame = Frame.pack_frame(
-      struct(frame, [
-        sequence_number: state.sequence_number,
-        source_system: state.system,
-        source_component: state.component
-      ])
-    )
-    updated_state = struct(state, [sequence_number: rem(state.sequence_number + 1, 255)])
-    {:noreply, route({:ok, :local, updated_frame, updated_state})}
+  def handle_cast(
+        {:send, frame},
+        state=%Router{
+          sequence_number: sequence_number,
+          system: system,
+          component: component}) do
+    {
+      :noreply,
+      route({
+        :ok,
+        :local,
+        Frame.pack_frame(
+          struct(frame, [
+            sequence_number: sequence_number,
+            source_system: system,
+            source_component: component
+          ])
+        ),
+        struct(state, [
+          sequence_number: rem(sequence_number + 1, 255)
+        ])}
+      )
+    }
   end
   
 
@@ -352,7 +367,7 @@ defmodule MAVLink.Router do
  
   #  Forward a message to a local subscribed Elixir process.
   #  TODO after all the changes perhaps we could try factoring out LocalConnection again...
-  defp forward(:local, %Frame{
+  defp forward(:local, frame = %Frame{
         source_system: source_system,
         source_component: source_component,
         target_system: target_system,
@@ -366,14 +381,16 @@ defmodule MAVLink.Router do
             source_system: q_source_system,
             source_component: q_source_component,
             target_system: q_target_system,
-            target_component: q_target_component},
+            target_component: q_target_component,
+            as_frame: as_frame?
+          },
           pid} <- subscriptions do
       if (q_message_type == nil or q_message_type == message_type)
           and (q_source_system == 0 or q_source_system == source_system)
           and (q_source_component == 0 or q_source_component == source_component)
           and (q_target_system == 0 or (targeted? and q_target_system == target_system))
           and (q_target_component == 0 or (targeted? and q_target_component == target_component)) do
-        send(pid, message)
+        send(pid, (if as_frame?, do: frame, else: message))
       end
     end
   end
@@ -396,7 +413,9 @@ defmodule MAVLink.Router do
     # Monitor so that we can unsubscribe dead processes
     Process.monitor(pid)
     # Uniq prevents duplicate subscriptions
-    {:noreply, %Router{state | subscriptions: Enum.uniq([{query, pid} | state.subscriptions])}}
+    {
+      :noreply,
+      %Router{state | subscriptions: Enum.uniq([{query, pid} | state.subscriptions])}}
   end
   
   
