@@ -4,6 +4,7 @@ defmodule MAVLink.UDPOutConnection do
   """
   
   require Logger
+  import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, validate_and_unpack: 2]
   alias MAVLink.Frame
   
   
@@ -16,10 +17,42 @@ defmodule MAVLink.UDPOutConnection do
                port: MAVLink.Types.net_port,
                socket: pid}
   
+  # Create connection if this is the first time we've received on it
+  def handle_info({:udp, socket, source_addr, source_port, raw}, nil, dialect) do
+    handle_info(
+      {:udp, socket, source_addr, source_port, raw},
+      %MAVLink.UDPOutConnection{address: source_addr, port: source_port, socket: socket},
+      dialect)
+  end
+
+  def handle_info({:udp, socket, source_addr, source_port, raw}, receiving_connection, dialect) do
+    case binary_to_frame_and_tail(raw) do
+      :not_a_frame ->
+        # Noise or malformed frame
+        Logger.warn("UDPOutConnection.handle_info: Not a frame #{inspect(raw)}")
+        {:error, :not_a_frame, {socket, source_addr, source_port}, receiving_connection}
+      {received_frame, _rest} -> # UDP sends frame per packet, so ignore rest
+        case validate_and_unpack(received_frame, dialect) do
+          {:ok, valid_frame} ->
+            # Include address and port in connection key because multiple
+            # clients can connect to a UDP "in" port.
+            {:ok, {socket, source_addr, source_port}, receiving_connection, valid_frame}
+          :unknown_message ->
+            # We re-broadcast valid frames with unknown messages
+            {:ok, {socket, source_addr, source_port}, receiving_connection, received_frame}
+          reason ->
+              Logger.warn(
+                "UDPOutConnection.handle_info: frame received from " <>
+                "#{Enum.join(Tuple.to_list(source_addr), ".")}:#{source_port} failed: #{Atom.to_string(reason)}")
+              {:error, reason, {socket, source_addr, source_port}, receiving_connection}
+        end
+    end
+  end
+  
   
   def connect(["udpout", address, port], state=%MAVLink.Router{connections: connections}) do
     {:ok, socket} = :gen_udp.open(
-      port,
+      0, # Pick random port
       [:binary, ip: address, active: :true]
     )
     
