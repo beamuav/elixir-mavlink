@@ -39,8 +39,8 @@ defmodule MAVLink.Router do
 
   defstruct [
     dialect: nil,                             # Generated dialect module
-    system: 25,                               # Default to ground station
-    component: 250,
+    system: 240,                               # Default to ground station
+    component: 1,
     connection_strings: [],                   # Connection descriptions from user
     connections: %{},                         # %{socket|port: MAVLink.*_Connection}
     routes: %{},                              # Connection and MAVLink version tuple keyed by MAVLink addresses
@@ -230,10 +230,19 @@ defmodule MAVLink.Router do
   def handle_info({:DOWN, _, :process, pid, _}, state), do: subscriber_down(pid, state)
   
   # Process incoming messages from connection ports
-  def handle_info(message = {:udp, socket, address, port, _}, state) do
+  def handle_info(message = {:udp, socket, address, port, _},
+        state = %Router{connections: connections, dialect: dialect}) do
     {
        :noreply,
-       UDPInConnection.handle_info(message, state.connections[{socket, address, port}], state.dialect)
+       case connections[{socket, address, port}] do
+         connection = %UDPInConnection{} ->
+           UDPInConnection.handle_info(message, connection, dialect)
+         connection = %UDPOutConnection{} ->
+           UDPOutConnection.handle_info(message, connection, dialect)
+         nil ->
+           # New unseen UDPIn client
+           UDPInConnection.handle_info(message, nil, dialect)
+       end
        |> update_route_info(state)
        |> route
     }
@@ -257,7 +266,9 @@ defmodule MAVLink.Router do
 #    }
 #  end
   
-  def handle_info(_, state), do: {:noreply, state}
+  def handle_info(_, state) do
+    {:noreply, state}
+  end
   
   
   
@@ -441,7 +452,7 @@ defmodule MAVLink.Router do
           (q_system == 0 or q_system == sid) and
           (q_component == 0 or q_component == cid)
       end
-    )
+    ) |> Enum.map(fn  {_, ck} -> ck end)
   end
   
 end
