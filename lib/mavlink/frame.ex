@@ -140,7 +140,7 @@ defmodule MAVLink.Frame do
                 |> x25_crc()
                 |> x25_crc([crc_extra])) do
           payload_truncated_length = 8 * (expected_length - frame.payload_length)  # Only used to undo MAVLink 2 payload truncation
-          case apply(dialect, :unpack, [
+          case apply(dialect, :unpack, [  # TODO try/rescue, too many ways for unpack to fail with dodgy messages...
             frame.message_id,
             frame.version,
             frame.payload <> (if payload_truncated_length > 0 and frame.version > 1, do: <<0::size(payload_truncated_length)>>, else: <<>>)]) do
@@ -149,7 +149,7 @@ defmodule MAVLink.Frame do
                 {:ok, struct(frame, [
                   message: message,
                   target_system: message.target_system,
-                  target_component: message.target_component,
+                  target_component: message.target_component, # TODO Target Component OPTIONAL, see SetMode
                   targeted?: true,
                   crc_extra: crc_extra
                 ])}
