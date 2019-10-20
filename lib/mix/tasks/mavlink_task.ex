@@ -109,7 +109,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
           @doc "Return the atom representation of a MAVLink enumeration value from the enumeration type and encoded integer"
           #{enum_code_fragments |> map(& &1[:decode_spec]) |> join("\n  ") |> trim}
           #{enum_code_fragments |> map(& &1[:decode]) |> join("\n  ") |> trim}
-          def decode(_enum, _value), do: {:error, :no_such_enum}
+          def decode(_enum, value), do: value
           
           
           @doc "Return the message checksum and size in bytes for a message with a specified id"
