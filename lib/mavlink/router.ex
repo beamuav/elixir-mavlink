@@ -415,7 +415,8 @@ defmodule MAVLink.Router do
     # Uniq prevents duplicate subscriptions
     {
       :noreply,
-      %Router{state | subscriptions: Enum.uniq([{query, pid} | state.subscriptions])}}
+      %Router{state | subscriptions: Enum.uniq([{query, pid} | state.subscriptions])}
+    }
   end
   
   
