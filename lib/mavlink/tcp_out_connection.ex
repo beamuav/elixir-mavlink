@@ -32,7 +32,8 @@ defmodule MAVLink.TCPOutConnection do
             {:ok, socket, struct(receiving_connection, [buffer: rest]), valid_frame}
           :unknown_message ->
             # We re-broadcast valid frames with unknown messages
-            {:ok, socket, struct(receiving_connection, [buffer: rest]), received_frame}
+            Logger.warn "rebroadcasting unknown message with id #{received_frame.message_id}}"
+            {:ok, socket, struct(receiving_connection, [buffer: rest]), struct(received_frame, [target: :broadcast])}
           reason ->
               Logger.warn(
                 "TCPOutConnection.handle_info: frame received failed: #{Atom.to_string(reason)}")
