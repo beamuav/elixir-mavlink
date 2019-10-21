@@ -109,11 +109,12 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
           @doc "Return the atom representation of a MAVLink enumeration value from the enumeration type and encoded integer"
           #{enum_code_fragments |> map(& &1[:decode_spec]) |> join("\n  ") |> trim}
           #{enum_code_fragments |> map(& &1[:decode]) |> join("\n  ") |> trim}
-          def decode(_enum, value), do: value
+          def decode(value, _enum), do: value
           
           
           @doc "Return the message checksum and size in bytes for a message with a specified id"
-          @spec msg_attributes(MAVLink.Types.message_id) :: {:ok, MAVLink.Types.crc_extra, pos_integer, boolean} | {:error, :unknown_message_id}
+          @typep target_type :: :broadcast | :system | :system_component | :component
+          @spec msg_attributes(MAVLink.Types.message_id) :: {:ok, MAVLink.Types.crc_extra, pos_integer, target_type} | {:error, :unknown_message_id}
           #{message_code_fragments |> map(& &1.msg_attributes) |> join("") |> trim}
           def msg_attributes(_), do: {:error, :unknown_message_id}
 
@@ -264,6 +265,17 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
       field_types = message.fields |> map(& downcase(&1.name) <> ": " <> field_type(&1, module_name)) |> join(", ")
       wire_order = message.fields |> wire_order
       
+      target = case {any?(message.fields, & &1.name == "target_system"), any?(message.fields, & &1.name == "target_component")} do
+        {false, false} ->
+          :broadcast
+        {true, false} ->
+          :system
+        {true, true} ->
+          :system_component
+        {false, true} ->
+          :component # Does this happen?
+      end
+      
       # Have to append "_f" to stop clash with reserved elixir words like "end"
       [unpack_binary_pattern, unpack_binary_pattern_ext] = for field_list <- wire_order do
         field_list
@@ -296,7 +308,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
         %{
           msg_attributes:
             """
-              def msg_attributes(#{message.id}), do: {:ok, #{crc_extra}, #{expected_payload_size}, #{any?(message.fields, & &1.name == "target_system")}}
+              def msg_attributes(#{message.id}), do: {:ok, #{crc_extra}, #{expected_payload_size}, :#{target}}
             """,
           unpack:
             """
@@ -321,7 +333,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
         %{
           msg_attributes:
             """
-              def msg_attributes(#{message.id}), do: {:ok, #{crc_extra}, #{expected_payload_size}, #{any?(message.fields, & &1.name == "target_system")}}
+              def msg_attributes(#{message.id}), do: {:ok, #{crc_extra}, #{expected_payload_size}, :#{target}}
             """,
           unpack:
             """
@@ -473,6 +485,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
   
   
   # Map field types to a binary pattern code fragment and a size
+  # TODO NaN <<0, 0, 192, 127>> is a MAVLink supported option for some command parameters, particularly #4 but can be others...
   defp type_to_binary("char"), do: %{pattern: "integer-size(8)", size: 1}
   defp type_to_binary("uint8_t"), do: %{pattern: "integer-size(8)", size: 1}
   defp type_to_binary("int8_t"), do: %{pattern: "signed-integer-size(8)", size: 1}
