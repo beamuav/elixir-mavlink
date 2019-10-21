@@ -10,16 +10,16 @@ defmodule MAVLink.Frame do
   
   
   defstruct [
-    version: nil,          # Which raw attributes are populated?
+    version: nil,              # Which raw attributes are populated?
     payload_length: nil,
     incompatible_flags: 0,      # MAVLink 2 only
     compatible_flags: 0,        # MAVLink 2 only
     sequence_number: nil,
     source_system: nil,
     source_component: nil,
-    target_system: nil,
-    target_component: nil,
-    targeted?: nil,
+    target_system: 0,          # Default to broadcast assumed elsewhere
+    target_component: 0,
+    target: nil,
     message_id: nil,
     crc_extra: nil,
     payload: nil,
@@ -41,7 +41,7 @@ defmodule MAVLink.Frame do
                 source_component: 1..255,
                 target_system: 1..255,
                 target_component: 1..255,
-                targeted?: boolean,
+                target: :broadcast | :system | :system_component | :component,
                 message_id: MAVLink.Types.message_id,
                 crc_extra: MAVLink.Types.crc_extra,
                 payload: binary,
@@ -122,7 +122,7 @@ defmodule MAVLink.Frame do
   @spec validate_and_unpack(MAVLink.Frame, module) :: {:ok, MAVLink.Frame} | :failed_to_unpack | :checksum_invalid | :unknown_message
   def validate_and_unpack(frame, dialect) do
     case apply(dialect, :msg_attributes, [frame.message_id]) do
-      {:ok, crc_extra, expected_length, targeted?} ->
+      {:ok, crc_extra, expected_length, target} ->
         if frame.checksum == (
                :binary.bin_to_list(
                   %{
@@ -145,22 +145,39 @@ defmodule MAVLink.Frame do
             frame.version,
             frame.payload <> (if payload_truncated_length > 0 and frame.version > 1, do: <<0::size(payload_truncated_length)>>, else: <<>>)]) do
             {:ok, message} ->
-              if targeted? do
-                {:ok, struct(frame, [
-                  message: message,
-                  target_system: message.target_system,
-                  target_component: message.target_component, # TODO Target Component OPTIONAL, see SetMode
-                  targeted?: true,
-                  crc_extra: crc_extra
-                ])}
-              else
-                {:ok, struct(frame, [
-                  message: message,
-                  target_system: 0,
-                  target_component: 0,
-                  targeted?: false,
-                  crc_extra: crc_extra
-                ])}
+              case target do
+                :broadcast ->
+                  {:ok, struct(frame, [
+                    message: message,
+                    target_system: 0,
+                    target_component: 0,
+                    target: target,
+                    crc_extra: crc_extra
+                  ])}
+                :system ->
+                  {:ok, struct(frame, [
+                    message: message,
+                    target_system: message.target_system,
+                    target_component: 0,
+                    target: target,
+                    crc_extra: crc_extra
+                  ])}
+                :system_component ->
+                  {:ok, struct(frame, [
+                    message: message,
+                    target_system: message.target_system,
+                    target_component: message.target_component,
+                    target: target,
+                    crc_extra: crc_extra
+                  ])}
+                :component ->
+                  {:ok, struct(frame, [
+                    message: message,
+                    target_system: 0,
+                    target_component: message.target_component,
+                    target: target,
+                    crc_extra: crc_extra
+                  ])}
               end
             _ ->
               Logger.warn("validate_and_unpack: Failed to unpack #{inspect(frame)}")
