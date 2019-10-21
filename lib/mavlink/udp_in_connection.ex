@@ -39,7 +39,8 @@ defmodule MAVLink.UDPInConnection do
             {:ok, {socket, source_addr, source_port}, receiving_connection, valid_frame}
           :unknown_message ->
             # We re-broadcast valid frames with unknown messages
-            {:ok, {socket, source_addr, source_port}, receiving_connection, received_frame}
+            Logger.warn "rebroadcasting unknown message with id #{received_frame.message_id}}"
+            {:ok, {socket, source_addr, source_port}, receiving_connection, struct(received_frame, [target: :broadcast])}
           reason ->
               Logger.warn(
                 "UDPInConnection.handle_info: frame received from " <>
