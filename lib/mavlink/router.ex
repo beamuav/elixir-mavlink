@@ -345,7 +345,7 @@ defmodule MAVLink.Router do
   # source we received the message from
   defp route({:ok,
         source_connection_key,
-        frame=%Frame{target_system: 0, target_component: 0},
+        frame=%Frame{target: :broadcast},
         state=%Router{connections: connections, subscriptions: subscriptions}}) do
     for {connection_key, connection} <- connections do
       unless match?(^connection_key, source_connection_key) do
@@ -383,7 +383,7 @@ defmodule MAVLink.Router do
         source_component: source_component,
         target_system: target_system,
         target_component: target_component,
-        targeted?: targeted?,
+        target: target,
         message: message = %{__struct__: message_type}
       }, subscriptions) do
     for {
@@ -399,8 +399,8 @@ defmodule MAVLink.Router do
       if (q_message_type == nil or q_message_type == message_type)
           and (q_source_system == 0 or q_source_system == source_system)
           and (q_source_component == 0 or q_source_component == source_component)
-          and (q_target_system == 0 or (targeted? and q_target_system == target_system))
-          and (q_target_component == 0 or (targeted? and q_target_component == target_component)) do
+          and (q_target_system == 0 or (target != :broadcast and target != :component and q_target_system == target_system))
+          and (q_target_component == 0 or (target != :broadcast and target != :system and q_target_component == target_component)) do
         send(pid, (if as_frame?, do: frame, else: message))
       end
     end
