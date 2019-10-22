@@ -149,5 +149,14 @@ defmodule MAVLink.Utils do
         :error
     end
   end
+  
+  
+  def pack_float(f) when is_float(f), do: <<f::little-signed-float-size(32)>>
+  def pack_float(:nan), do: <<0, 0, 192, 127>>
+  
+  
+  def unpack_float(<<f::little-signed-float-size(32)>>), do: f
+  def unpack_float(<<0, 0, 192, 127>>), do: :nan
+  
 
 end
