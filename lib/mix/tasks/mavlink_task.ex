@@ -74,7 +74,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
         defmodule #{module_name} do
         
           import String, only: [replace_trailing: 3]
-          import MAVLink.Utils, only: [unpack_array: 2]
+          import MAVLink.Utils, only: [unpack_array: 2, unpack_float: 1]
           
           use Bitwise, only_operators: true
         
@@ -374,6 +374,9 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
   
   
   # Unpack Message Fields
+  defp unpack_field_code_fragment(%{name: name, ordinality: 1, enum: "", type: "float"}, _) do
+    "unpack_float(#{downcase(name)}_f)"
+  end
   
   defp unpack_field_code_fragment(%{name: name, ordinality: 1, enum: ""}, _) do
     downcase(name) <> "_f"
@@ -403,6 +406,10 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
   
   
   # Pack Message Fields
+  
+  defp pack_field_code_fragment(%{name: name, ordinality: 1, enum: "", type: "float"}, _, _) do
+    "MAVLink.Utils.pack_float(msg.#{downcase(name)})::binary-size(4)"
+  end
   
   defp pack_field_code_fragment(%{name: name, ordinality: 1, enum: "", type: type}, _, _) do
     "msg.#{downcase(name)}::#{type_to_binary(type).pattern}"
@@ -485,7 +492,6 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
   
   
   # Map field types to a binary pattern code fragment and a size
-  # TODO NaN <<0, 0, 192, 127>> is a MAVLink supported option for some command parameters, particularly #4 but can be others...
   defp type_to_binary("char"), do: %{pattern: "integer-size(8)", size: 1}
   defp type_to_binary("uint8_t"), do: %{pattern: "integer-size(8)", size: 1}
   defp type_to_binary("int8_t"), do: %{pattern: "signed-integer-size(8)", size: 1}
@@ -495,7 +501,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
   defp type_to_binary("int32_t"), do: %{pattern: "little-signed-integer-size(32)", size: 4}
   defp type_to_binary("uint64_t"), do: %{pattern: "little-integer-size(64)", size: 8}
   defp type_to_binary("int64_t"), do: %{pattern: "little-signed-integer-size(64)", size: 8}
-  defp type_to_binary("float"), do: %{pattern: "little-signed-float-size(32)", size: 4}
+  defp type_to_binary("float"), do: %{pattern: "binary-size(4)", size: 4} # Delegate to (un)pack_float to handle :nan
   defp type_to_binary("double"), do: %{pattern: "little-signed-float-size(64)", size: 8}
   
   
