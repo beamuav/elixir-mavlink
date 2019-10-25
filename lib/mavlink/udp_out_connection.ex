@@ -54,7 +54,7 @@ defmodule MAVLink.UDPOutConnection do
   def connect(["udpout", address, port], state=%MAVLink.Router{connections: connections}) do
     {:ok, socket} = :gen_udp.open(
       0, # Pick random port
-      [:binary, ip: address, active: :true]
+      [:binary, ip: address, active: :true]  # TODO that address should be local, loopback or NIC?
     )
     
     struct(
