@@ -27,3 +27,17 @@ MAVLink.ex
 
 # Intellij
 .idea
+
+# Where we put message_definition XML files to be parsed
+# We don't want to include these in this repo because:
+# a) They change a lot.
+# b) No-one can decide on standards.
+
+/message_definitions
+
+# Example output directory for generated files.
+/output
+
+# macOS kruft
+
+.DS_Store
