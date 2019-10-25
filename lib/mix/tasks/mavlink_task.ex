@@ -378,6 +378,10 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
     "unpack_float(#{downcase(name)}_f)"
   end
   
+  defp unpack_field_code_fragment(%{name: name, ordinality: 1, enum: "", type: "double"}, _) do
+    "unpack_double(#{downcase(name)}_f)"
+  end
+  
   defp unpack_field_code_fragment(%{name: name, ordinality: 1, enum: ""}, _) do
     downcase(name) <> "_f"
   end
@@ -409,6 +413,10 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
   
   defp pack_field_code_fragment(%{name: name, ordinality: 1, enum: "", type: "float"}, _, _) do
     "MAVLink.Utils.pack_float(msg.#{downcase(name)})::binary-size(4)"
+  end
+  
+  defp pack_field_code_fragment(%{name: name, ordinality: 1, enum: "", type: "double"}, _, _) do
+    "MAVLink.Utils.pack_double(msg.#{downcase(name)})::binary-size(8)"
   end
   
   defp pack_field_code_fragment(%{name: name, ordinality: 1, enum: "", type: type}, _, _) do
@@ -502,7 +510,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
   defp type_to_binary("uint64_t"), do: %{pattern: "little-integer-size(64)", size: 8}
   defp type_to_binary("int64_t"), do: %{pattern: "little-signed-integer-size(64)", size: 8}
   defp type_to_binary("float"), do: %{pattern: "binary-size(4)", size: 4} # Delegate to (un)pack_float to handle :nan
-  defp type_to_binary("double"), do: %{pattern: "little-signed-float-size(64)", size: 8}
+  defp type_to_binary("double"), do: %{pattern: "binary-size(8)", size: 8} # " " (un)pack_double
   
   
   @spec escape(String.t) :: String.t
