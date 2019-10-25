@@ -4,7 +4,7 @@ defmodule MAVLink.Mixfile do
   def project do
     [
       app: :mavlink,
-      version: "0.4.0",
+      version: "0.5.0",
       elixir: "~> 1.9",
       start_permanent: Mix.env() == :prod,
       description: description(),
@@ -37,8 +37,8 @@ defmodule MAVLink.Mixfile do
       env: [
         # Dialect module generated using mix mavlink
         dialect: nil,
-        # Default to ground station
-        system_id: 255,
+        # Default to ground station-ish system id
+        system_id: 245,
         # Default to system control
         component_id: 250,
         connections: []
@@ -68,7 +68,7 @@ defmodule MAVLink.Mixfile do
       name: "mavlink",
       files: ["lib", "mix.exs", "README.md", "LICENSE"],
       licenses: ["MIT"],
-      links: %{"Github" => "https://github.com/robinhilliard/elixir-mavlink"},
+      links: %{"Github" => "https://github.com/beamuav/elixir-mavlink"},
       maintainers: ["Robin Hilliard"]
     ]
   end
