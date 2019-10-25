@@ -152,11 +152,19 @@ defmodule MAVLink.Utils do
   
   
   def pack_float(f) when is_float(f), do: <<f::little-signed-float-size(32)>>
-  def pack_float(:nan), do: <<0, 0, 192, 127>>
+  def pack_float(:nan), do: <<0, 0, 192, 127>> # Have received these from QGroundControl
   
   
   def unpack_float(<<f::little-signed-float-size(32)>>), do: f
   def unpack_float(<<0, 0, 192, 127>>), do: :nan
+  
+  
+  def pack_double(f) when is_float(f), do: <<f::little-signed-float-size(64)>>
+  def pack_double(:nan), do: <<0, 0, 0, 0, 0, 0, 248, 127>> # Quick test in C gave this for double NaN
+  
+  
+  def unpack_double(<<f::little-signed-float-size(64)>>), do: f
+  def unpack_double(<<0, 0, 0, 0, 0, 0, 248, 127>>), do: :nan
   
 
 end
