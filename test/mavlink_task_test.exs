@@ -11,13 +11,13 @@ defmodule MAVLink.Test.Tasks do
     # Setup output directory
     File.mkdir_p(@output_dir)
     File.rm(@output)
-    
+
     # Run mix task
     run([@input, @output, @output_module])
-    
+
     # Did it generate
     assert File.exists?(@output)
-    
+
     # We don't care if we redefine MAVLink modules while running the following test
     Code.compiler_options(ignore_module_conflict: true)
 
@@ -161,7 +161,7 @@ defmodule MAVLink.Test.Tasks do
           Elixir.Common.Message.SetPositionTargetGlobalInt,
           Elixir.Common.Message.SetPositionTargetLocalNed,
           Elixir.Common.Message.SetupSigning,
-          Elixir.Common.Message.SimState,
+          # Elixir.Common.Message.SimState,
           Elixir.Common.Message.Statustext,
           Elixir.Common.Message.StatustextLong,
           Elixir.Common.Message.StorageInformation,
@@ -319,7 +319,7 @@ defmodule MAVLink.Test.Tasks do
           MAVLink.Message.Common.Message.SetPositionTargetGlobalInt,
           MAVLink.Message.Common.Message.SetPositionTargetLocalNed,
           MAVLink.Message.Common.Message.SetupSigning,
-          MAVLink.Message.Common.Message.SimState,
+          # MAVLink.Message.Common.Message.SimState,
           MAVLink.Message.Common.Message.Statustext,
           MAVLink.Message.Common.Message.StatustextLong,
           MAVLink.Message.Common.Message.StorageInformation,
