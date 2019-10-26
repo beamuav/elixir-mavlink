@@ -17,7 +17,7 @@ defmodule MAVLink.Router do
   require Logger
   
   import MAVLink.Utils, only: [parse_ip_address: 1, parse_positive_integer: 1]
-  import Enum, only: [filter: 2, map: 2]
+  import Enum, only: [reduce: 3, filter: 2, map: 2]
   
   alias MAVLink.Frame
   alias MAVLink.Message
@@ -188,17 +188,30 @@ defmodule MAVLink.Router do
   
   def init(state = %Router{connection_strings: connection_strings}) do
     map(connection_strings, &connect/1)
-    {:ok, state}
+    case Agent.start(fn -> [] end, name: MAVLink.SubscriptionCache) do
+      {:ok, _} ->
+        Logger.info("Started Subscription Cache")
+        {:ok, state}
+      {:error, {:already_started, _}} ->
+        Logger.info("Restoring subscriptions from Subscription Cache")
+        {
+          :ok,
+          reduce(
+            Agent.get(MAVLink.SubscriptionCache, fn subs -> subs end),
+            state,
+            fn {query, pid}, state -> subscribe(query, pid, state)  end)
+        }
+    end
   end
   
   
   @impl true
   def handle_cast({:subscribe, query, pid}, state) do
-    subscribe(query, pid, state)
+    {:noreply, subscribe(query, pid, state)}
   end
   
   def handle_cast({:unsubscribe, pid}, state) do
-    unsubscribe(pid, state)
+    {:noreply, unsubscribe(pid, state)}
   end
   
   def handle_cast(
@@ -228,7 +241,7 @@ defmodule MAVLink.Router do
   
 
   @impl true
-  def handle_info({:DOWN, _, :process, pid, _}, state), do: subscriber_down(pid, state)
+  def handle_info({:DOWN, _, :process, pid, _}, state), do: {:noreply, subscriber_down(pid, state)}
   
   # Process incoming messages from connection ports
   def handle_info(message = {:udp, socket, address, port, _},
@@ -443,25 +456,32 @@ defmodule MAVLink.Router do
   
   # Subscription request from subscriber
   defp subscribe(query, pid, state) do
+    Logger.info("Subscribe #{inspect(pid)} to query #{inspect(query)}")
     # Monitor so that we can unsubscribe dead processes
     Process.monitor(pid)
     # Uniq prevents duplicate subscriptions
-    {
-      :noreply,
-      %Router{state | subscriptions: Enum.uniq([{query, pid} | state.subscriptions])}
-    }
+    %Router{state | subscriptions: (Enum.uniq([{query, pid} | state.subscriptions]) |> update_subscription_cache)}
   end
   
   
   # Unsubscribe request from subscriber
   defp unsubscribe(pid, state) do
-    {:noreply, %Router{state | subscriptions: filter(state.subscriptions, & not match?({_, ^pid}, &1))}}
+    Logger.info("Unsubscribe #{inspect(pid)}")
+    %Router{state | subscriptions: (filter(state.subscriptions, & not match?({_, ^pid}, &1)) |> update_subscription_cache)}
   end
   
   
   # Automatically unsubscribe a dead subscriber process
   defp subscriber_down(pid, state) do
-    {:noreply, %Router{state | subscriptions: filter(state.subscriptions, & not match?({_, ^pid}, &1))}}
+    Logger.info("Subscriber #{inspect(pid)} exited")
+    %Router{state | subscriptions: (filter(state.subscriptions, & not match?({_, ^pid}, &1)) |> update_subscription_cache)}
+  end
+  
+  
+  defp update_subscription_cache(subscriptions) do
+    Logger.info("Update subscription cache: #{inspect(subscriptions)}")
+    Agent.update(MAVLink.SubscriptionCache, fn _ -> subscriptions end)
+    subscriptions
   end
   
   
