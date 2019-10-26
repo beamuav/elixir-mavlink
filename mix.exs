@@ -67,6 +67,7 @@ defmodule MAVLink.Mixfile do
     [
       name: "mavlink",
       files: ["lib", "mix.exs", "README.md", "LICENSE"],
+      exclude_patterns: [".DS_Store"],
       licenses: ["MIT"],
       links: %{"Github" => "https://github.com/beamuav/elixir-mavlink"},
       maintainers: ["Robin Hilliard"]
