@@ -17,7 +17,7 @@ by adding `mavlink` to your list of dependencies in `mix.exs`:
   ```elixir
  def deps do
    [
-     {:mavlink, "~> 0.6.0"}
+     {:mavlink, "~> 0.7.0"}
    ]
  end
  ```
