@@ -17,12 +17,12 @@ defmodule MAVLink.Router do
   require Logger
   
   import MAVLink.Utils, only: [parse_ip_address: 1, parse_positive_integer: 1]
-  import Enum, only: [reduce: 3, filter: 2]
+  import Enum, only: [filter: 2, map: 2]
   
   alias MAVLink.Frame
   alias MAVLink.Message
   alias MAVLink.Router
-  alias MAVLink.SerialConnection
+  #alias MAVLink.SerialConnection
   alias MAVLink.TCPOutConnection
   alias MAVLink.Types
   alias MAVLink.UDPInConnection
@@ -182,12 +182,13 @@ defmodule MAVLink.Router do
   #######################
   
   @impl true
-  def init(%{dialect: nil}) do
+  def init(%Router{dialect: nil}) do
     {:error, :no_mavlink_dialect_set}
   end
   
-  def init(state = %{connection_strings: connection_strings}) do
-    {:ok, reduce(connection_strings, struct(Router, state), &connect/2)}
+  def init(state = %Router{connection_strings: connection_strings}) do
+    map(connection_strings, &connect/1)
+    {:ok, state}
   end
   
   
@@ -257,6 +258,14 @@ defmodule MAVLink.Router do
     }
   end
   
+  def handle_info({:tcp_closed, socket}, state) do
+    %TCPOutConnection{address: address, port: port} = state.connections[socket]
+    spawn TCPOutConnection, :connect, [["tcpout", address, port], self()]
+    {:noreply, remove_connection(socket, state)}
+  end
+  
+  # No equivalent close to handle for UDP
+  
 #  def handle_info(message = {:serial, port, _, _, _}, state) do
 #    {
 #      :noreply,
@@ -265,6 +274,17 @@ defmodule MAVLink.Router do
 #      |> route
 #    }
 #  end
+
+  def handle_info({:add_connection, connection_key, connection},
+        state=%Router{connections: connections}) do
+    {
+      :noreply,
+      struct(
+        state,
+        [connections: Map.put(connections, connection_key, connection)]
+      )
+    }
+  end
   
   def handle_info(_, state) do
     {:noreply, state}
@@ -278,15 +298,17 @@ defmodule MAVLink.Router do
   ####################
   
   
-  defp connect(connection_string, state) when is_binary(connection_string) do
-    connect(String.split(connection_string, [":", ","]), state)
-  end
+  defp connect(connection_string) when is_binary(connection_string), do: connect String.split(connection_string, [":", ","])
+  defp connect(tokens = ["udpin" | _]), do: spawn UDPInConnection, :connect, [validate_address_and_port(tokens), self()]
+  defp connect(tokens = ["udpout" | _]), do: spawn UDPOutConnection, :connect, [validate_address_and_port(tokens), self()]
+  defp connect(tokens = ["tcpout" | _]), do: spawn TCPOutConnection, :connect, [validate_address_and_port(tokens), self()]
+  #defp connect(tokens = ["serial" | _], state), do: spawn SerialConnection, :connect, [tokens, self()]
+  defp connect([invalid_protocol | _]), do: raise(ArgumentError, message: "invalid protocol #{invalid_protocol}")
   
-  defp connect(tokens = ["serial" | _], state), do: SerialConnection.connect(tokens, state)
-  defp connect(tokens = ["udpin" | _], state), do: UDPInConnection.connect(validate_address_and_port(tokens), state)
-  defp connect(tokens = ["udpout" | _], state), do: UDPOutConnection.connect(validate_address_and_port(tokens), state)
-  defp connect(tokens = ["tcpout" | _], state), do: TCPOutConnection.connect(validate_address_and_port(tokens), state)
-  defp connect([invalid_protocol | _], _), do: raise(ArgumentError, message: "invalid protocol #{invalid_protocol}")
+  
+  defp remove_connection(connection_key, state=%Router{connections: connections}) do
+    struct(state, [connections: Map.delete(connections, connection_key)])
+  end
   
   
   # Map system/component ids to connections on which they have been seen for targeted messages
