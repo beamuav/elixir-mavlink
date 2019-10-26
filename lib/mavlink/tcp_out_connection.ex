@@ -12,8 +12,8 @@ defmodule MAVLink.TCPOutConnection do
   import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, validate_and_unpack: 2]
   
   
-  defstruct [socket: nil, buffer: <<>>]
-  @type t :: %MAVLink.TCPOutConnection{socket: pid, buffer: binary}
+  defstruct [socket: nil, address: nil, port: nil, buffer: <<>>]
+  @type t :: %MAVLink.TCPOutConnection{socket: pid, address: MAVLink.Types.net_address, port: MAVLink.Types.net_port, buffer: binary}
   
   
   def handle_info({:tcp, socket, raw}, receiving_connection=%MAVLink.TCPOutConnection{buffer: buffer}, dialect) do
@@ -43,27 +43,27 @@ defmodule MAVLink.TCPOutConnection do
   end
   
   
-  def connect(["tcpout", address, port], state=%MAVLink.Router{connections: connections}) do
-    {:ok, socket} = :gen_tcp.connect(
-      address,
-      port,
-      [:binary, active: :true]
-    )
-    
-    struct(
-      state,
-      [
-        connections: Map.put(
-          connections,
-          socket,
-          struct(
-            MAVLink.TCPOutConnection,
-            [socket: socket]
-          )
+  def connect(["tcpout", address, port], controlling_process) do
+    case :gen_tcp.connect(address, port, [:binary, active: :true]) do
+      {:ok, socket} ->
+        Logger.info("Opened tcpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}")
+        send(
+          controlling_process,
+          {
+            :add_connection,
+            socket,
+            struct(
+              MAVLink.TCPOutConnection,
+              [socket: socket, address: address, port: port]
+            )
+          }
         )
-      ]
-    )
-
+        :gen_tcp.controlling_process(socket, controlling_process)
+      other ->
+        Logger.warn("Could not open tcpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}: #{inspect(other)}. Retrying in 1 second")
+        :timer.sleep(1000)
+        connect(["tcpout", address, port], controlling_process)
+    end
   end
   
   
