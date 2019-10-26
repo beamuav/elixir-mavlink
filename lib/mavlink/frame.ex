@@ -140,57 +140,62 @@ defmodule MAVLink.Frame do
                 |> x25_crc()
                 |> x25_crc([crc_extra])) do
           payload_truncated_length = 8 * (expected_length - frame.payload_length)  # Only used to undo MAVLink 2 payload truncation
-          case apply(dialect, :unpack, [  # TODO try/rescue, too many ways for unpack to fail with dodgy messages...
-            frame.message_id,
-            frame.version,
-            frame.payload <> (if payload_truncated_length > 0 and frame.version > 1, do: <<0::size(payload_truncated_length)>>, else: <<>>)]) do
-            {:ok, message} ->
-              case target do
-                :broadcast ->
-                  {:ok, struct(frame, [
-                    message: message,
-                    target_system: 0,
-                    target_component: 0,
-                    target: target,
-                    crc_extra: crc_extra
-                  ])}
-                :system ->
-                  {:ok, struct(frame, [
-                    message: message,
-                    target_system: message.target_system,
-                    target_component: 0,
-                    target: target,
-                    crc_extra: crc_extra
-                  ])}
-                :system_component ->
-                  {:ok, struct(frame, [
-                    message: message,
-                    target_system: message.target_system,
-                    target_component: message.target_component,
-                    target: target,
-                    crc_extra: crc_extra
-                  ])}
-                :component ->
-                  {:ok, struct(frame, [
-                    message: message,
-                    target_system: 0,
-                    target_component: message.target_component,
-                    target: target,
-                    crc_extra: crc_extra
-                  ])}
-              end
-            _ ->
-              Logger.warn("validate_and_unpack: Failed to unpack #{inspect(frame)}")
-              :failed_to_unpack
+          try do  # Too many ways for unpack to fail with dodgy messages...
+            case apply(dialect, :unpack, [
+              frame.message_id,
+              frame.version,
+              frame.payload <> (if payload_truncated_length > 0 and frame.version > 1, do: <<0::size(payload_truncated_length)>>, else: <<>>)]) do
+              {:ok, message} ->
+                case target do
+                  :broadcast ->
+                    {:ok, struct(frame, [
+                      message: message,
+                      target_system: 0,
+                      target_component: 0,
+                      target: target,
+                      crc_extra: crc_extra
+                    ])}
+                  :system ->
+                    {:ok, struct(frame, [
+                      message: message,
+                      target_system: message.target_system,
+                      target_component: 0,
+                      target: target,
+                      crc_extra: crc_extra
+                    ])}
+                  :system_component ->
+                    {:ok, struct(frame, [
+                      message: message,
+                      target_system: message.target_system,
+                      target_component: message.target_component,
+                      target: target,
+                      crc_extra: crc_extra
+                    ])}
+                  :component ->
+                    {:ok, struct(frame, [
+                      message: message,
+                      target_system: 0,
+                      target_component: message.target_component,
+                      target: target,
+                      crc_extra: crc_extra
+                    ])}
+                end
+              _ ->
+                Logger.warn("validate_and_unpack: Failed to unpack #{inspect(frame)}")
+                :failed_to_unpack
+            end
+          rescue
+            FunctionClauseError -> Logger.warn Logger.warn("validate_and_unpack: Failed to unpack #{inspect(frame)}, couldn't match payload")
           end
-        else
-          Logger.warn("validate_and_unpack: Checksum invalid #{inspect(frame)}")
-          :checksum_invalid
-        end
-      _ ->
-        Logger.warn("validate_and_unpack: Unknown message #{inspect(frame)}")
-        :unknown_message
-    end
+          else
+            Logger.warn("validate_and_unpack: Checksum invalid #{inspect(frame)}")
+            :checksum_invalid
+          end
+        _ ->
+          Logger.warn("validate_and_unpack: Unknown message #{inspect(frame)}")
+          :unknown_message
+      end
+      
   end
   
   
