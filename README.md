@@ -17,7 +17,7 @@ by adding `mavlink` to your list of dependencies in `mix.exs`:
   ```elixir
  def deps do
    [
-     {:mavlink, "~> 0.2.0"}
+     {:mavlink, "~> 0.5.0"}
    ]
  end
  ```
@@ -30,148 +30,86 @@ This library is not officially recognised or supported by MAVLink at this
 time. We aim over time to achieve complete compliance with the MAVLink 2.0
 specification, but our initial focus is on using this library on companion
 computers and ground stations for our team entry in the 
-2020 UAV Outback Challenge https://uavchallenge.org/medical-rescue/.
+[2020 UAV Outback Challenge](https://uavchallenge.org/medical-rescue/).
 
-## Testing locally with Ardupilot, MavProxy, SITL and X-Plane
-
-It's possible to use SITL with X-Plane:
-
-http://ardupilot.org/dev/docs/sitl-with-xplane.html
-
-### Install dependencies:
-
-<!-- Install Python 3:
+## Generating MAVLink Dialect Modules
+MAVLink message definition files for popular dialects can be found [here](https://github.com/mavlink/mavlink/tree/master/message_definitions/v1.0).
+To generate an Elixir source file containing the modules we need to speak a MAVLink dialect (for example ardupilotmega):
 
 ```
-brew install python
-``` -->
-
-Ensure the above version overrides the built-in Python 2 in macOS, by adding this
-to the end of your `.zshrc` or `.bash_profile`:
-
-```
-export PATH="/usr/local/opt/python/libexec/bin:$PATH"
+> mix mavlink test/input/ardupilotmega.xml lib/apm.ex APM
+* creating lib/apm.ex
+Generated APM in 'lib/apm.ex'.
+>
 ```
 
-Verify with: `python --version`.
-
-Remove this incompatible library:
-
-```
-sudo pip uninstall python-dateutil
-```
-
-### Install MavProxy
+## Configuring the MAVLink Application
+Add `MAVLink.Application` with no start arguments to your `mix.exs`. You need to point the application at the dialect you just generated 
+and list the connections to other vehicles in `config.exs`:
 
 ```
-sudo pip install wxPython
-sudo pip install gnureadline
-sudo pip install billiard
-sudo pip install numpy pyparsing
-sudo pip install MAVProxy
+config :mavlink, dialect: APM, connections: ["udpout:127.0.0.1:14550", "tcpout:127.0.0.1:5760"]
 ```
 
-### Ardupilot
+The above config specifies the APM dialect we generated and connects to a ground station listening for 
+UDP packets on 14550 and a SITL vehicle listening for TCP connections on 5760. Remember 'out' means client, 
+'in' means server.
 
-Install Ardupilot dependencies:
-
-```
-brew tap ardupilot/homebrew-px4
-brew install genromfs
-brew install gcc-arm-none-eabi
-brew install gawk
-```
-
-Download Ardupilot:
+## Receive MAVLink messages
+With the configured MAVLink application running you can subscribe to particular MAVLink messages:
 
 ```
-git clone git@github.com:ArduPilot/ardupilot.git
-```
+alias MAVLink.Router, as: MAV
 
-Build Ardupilot for macOS:
-
-```
-brew uninstall binutils
-cd ardupilot
-./Tools/environment_install/install-prereqs-mac.sh
-```
-
-Configure Ardupilot for SITL:
-
-./waf configure --board sitl
-
-And run Arducopter:
-
-```bash
-cd ardupilot/ArduCopter
-cd ArduCopter
-sim_vehicle.py -w
-```
-
-Start X-Plane and set up the data export settings per web page, then run arduplane and mavproxy
-
-mavproxy.py --master=tcp:127.0.0.1:5760 --out 127.0.0.1:14550
-
-Then
-
-```bash
-mix run scripts/listen.exs
-```
-
-will receive messages
-
-## to kill emlid noise bug in mavproxy:
-
-```
-set shownoise False
-```
-
-Which can also be added to `~/.mavinit.scr` to run every time `mavproxy.py` runs.
-
-# Testing against real message definition files
-
-In another directory (like `..`):
-
-```bash
-git clone  git@github.com:mavlink/mavlink.git
-cd elixir-mavlink
-```
-
-The message definitions live in:
-
-```
-message_definitions/v1.0
-```
-
-To generate a protocol file for APM:
-
-```bash
-mkdir message_definitions
-cp ../mavlink/message_definitions/v1.0/\* message_definitions
-
-mix mavlink message_definitions/ardupilotmega.xml output/apm.ex APM
-```
-
-## Example usage
-
-```elixir
-defmodule TestLog do
-  def start do
-    MAVLink.Router.subscribe(message: APM.Message.VfrHud)
-    # MAVLink.Router.subscribe(message: APM.Message.SysStatus)
-    # MAVLink.Router.subscribe(message: APM.Message.Heartbeat)
-    # MAVLink.Router.subscribe(message: APM.Message.GlobalPositionInt)
-    loop()
-  end
-
-  def loop do
+defmodule Echo do
+  def run() do
     receive do
-      x ->
-        IO.inspect(x)
-        loop()
+      msg ->
+        IO.inspect msg
     end
+    run()
   end
 end
 
-TestLog.start()
+MAV.subscribe source_system: 1, message: APM.Message.Heartbeat
+Echo.run()
 ```
+
+or send a MAVLink message:
+
+```
+alias MAVLink.Router, as: MAV
+alias APM.Message.RcChannelsOverride
+
+MAV.pack_and_send(
+  %RcChannelsOverride{
+    target_system: 1,
+    target_component: 1,
+    chan1_raw: 1500,
+    chan2_raw: 1500,
+    chan3_raw: 1500,
+    chan4_raw: 1500,
+    chan5_raw: 1500,
+    chan6_raw: 1500,
+    chan7_raw: 1500,
+    chan8_raw: 1500,
+    chan9_raw: 0,
+    chan10_raw: 0,
+    chan11_raw: 0,
+    chan12_raw: 0,
+    chan13_raw: 0,
+    chan14_raw: 0,
+    chan15_raw: 0,
+    chan16_raw: 0,
+    chan17_raw: 0,
+    chan18_raw: 0
+  }
+)
+```
+
+## Roadmap
+- Serial Connections
+- Reconnect dropped connections
+- Resubscribe subscribing processes on router restart
+- MAVLink microservice/protocol helpers
+- Signed MAVLink v2 messages
