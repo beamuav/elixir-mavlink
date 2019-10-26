@@ -51,26 +51,27 @@ defmodule MAVLink.UDPOutConnection do
   end
   
   
-  def connect(["udpout", address, port], state=%MAVLink.Router{connections: connections}) do
-    {:ok, socket} = :gen_udp.open(
-      0, # Pick random port
-      [:binary, ip: address, active: :true]  # TODO that address should be local, loopback or NIC?
-    )
-    
-    struct(
-      state,
-      [
-        connections: Map.put(
-          connections,
-          socket,
-          struct(
-            MAVLink.UDPOutConnection,
-            [socket: socket, address: address, port: port]
-          )
+  def connect(["udpout", address, port], controlling_process) do
+    case :gen_udp.open(0, [:binary, ip: address, active: :true]) do
+      {:ok, socket} ->
+        Logger.info("Opened udpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}")
+        send(
+          controlling_process,
+          {
+            :add_connection,
+            socket,
+            struct(
+              MAVLink.UDPOutConnection,
+              [socket: socket, address: address, port: port]
+            )
+          }
         )
-      ]
-    )
-
+        :gen_udp.controlling_process(socket, controlling_process)
+      other ->
+        Logger.warn("Could not open udpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}: #{inspect(other)}. Retrying in 1 second")
+        :timer.sleep(1000)
+        connect(["udpout", address, port], controlling_process)
+    end
   end
   
   
