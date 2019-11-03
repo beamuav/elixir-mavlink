@@ -83,7 +83,7 @@ defmodule MAVLink.Frame do
   
   def binary_to_frame_and_tail(raw_and_rest=<<0xfd, # MAVLink version 2
       payload_length::unsigned-integer-size(8),
-      0::unsigned-integer-size(8),
+      _incompatible_flags::unsigned-integer-size(8), # need to match otherwise infinite buffer
       compatible_flags::unsigned-integer-size(8),
       sequence_number::unsigned-integer-size(8),
       source_system::unsigned-integer-size(8),
