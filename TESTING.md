@@ -6,17 +6,8 @@ http://ardupilot.org/dev/docs/sitl-with-xplane.html
 
 ### Install dependencies:
 
-<!-- Install Python 3:
-
 ```
-brew install python
-``` -->
-
-Ensure the above version overrides the built-in Python 2 in macOS, by adding this
-to the end of your `.zshrc` or `.bash_profile`:
-
-```
-export PATH="/usr/local/opt/python/libexec/bin:$PATH"
+brew install python@2.7
 ```
 
 Verify with: `python --version`.
@@ -50,28 +41,35 @@ brew install gawk
 
 Download Ardupilot:
 
-```
+```bash
 git clone git@github.com:ArduPilot/ardupilot.git
 ```
 
 Build Ardupilot for macOS:
 
+```bash
+cd ardupilot && ./Tools/environment_install/install-prereqs-mac.sh
 ```
-brew uninstall binutils
-cd ardupilot
-./Tools/environment_install/install-prereqs-mac.sh
+
+Add the following to your shell:
+
+```
+export PATH=/Path/To/ardupilot/Tools/autotest:$PATH
 ```
 
 Configure Ardupilot for SITL:
 
+```
+cd ardupilot
 ./waf configure --board sitl
-
-And run Arducopter:
-
-```bash
-cd ardupilot/ArduCopter
 cd ArduCopter
 sim_vehicle.py -w
+```
+
+After initialisation Ctl C and run the following:
+
+```
+sim_vehicle.py --console
 ```
 
 Start X-Plane and set up the data export settings per web page, then run arduplane and mavproxy
@@ -99,7 +97,7 @@ Which can also be added to `~/.mavinit.scr` to run every time `mavproxy.py` runs
 In another directory (like `..`):
 
 ```bash
-git clone  git@github.com:mavlink/mavlink.git
+git clone git@github.com:mavlink/mavlink.git
 cd elixir-mavlink
 ```
 
@@ -113,8 +111,7 @@ To generate a protocol file for APM:
 
 ```bash
 mkdir message_definitions
-cp ../mavlink/message_definitions/v1.0/\* message_definitions
-
+cp ../mavlink/message_definitions/v1.0/* message_definitions
 mix mavlink message_definitions/ardupilotmega.xml output/apm.ex APM
 ```
 
