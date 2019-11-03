@@ -50,7 +50,11 @@ defmodule MAVLink.Mixfile do
 
   defp deps do
     [
-      {:circuits_uart, "~> 1.3"},
+      #{:circuits_uart, "~> 1.3"},
+      {:circuits_uart,
+        git: "https://github.com/beamuav/circuits_uart.git",
+        tag: "controlling-process"},
+      {:poolboy, "~> 1.5"},
       {:dialyzex, "~> 1.2.0", only: :dev, runtime: false},
       {:ex_doc, "~> 0.20.2", only: :dev, runtime: false}
     ]
