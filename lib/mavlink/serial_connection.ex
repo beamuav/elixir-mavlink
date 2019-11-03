@@ -1,49 +1,92 @@
-# NOTE THIS IS WAY BEHIND SEE UDPConnection for new format
-
 defmodule MAVLink.SerialConnection do
   @moduledoc """
   MAVLink.Router delegate for Serial connections
   """
   
+  @smallest_mavlink_message 8
   
-  import MAVLink.Utils, only: [parse_positive_integer: 1]
-  alias Circuits.UART, as: UART
+  require Logger
   
-  # TODO struct with a buffer
+  alias MAVLink.Frame
+  alias Circuits.UART
+  
+  import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, validate_and_unpack: 2]
   
   
-  def connect(["serial", port], state) do
-    connect(["serial", port, "9600"], state)
-  end
+  defstruct [
+    port: nil,
+    baud: nil,
+    uart: nil,
+    buffer: <<>>]
+  @type t :: %MAVLink.SerialConnection{
+               port: binary,
+               baud: non_neg_integer,
+               uart: pid,
+               buffer: binary}
   
-  def connect(["serial", port, _], %MAVLink.Router{uarts: []}) do
-    raise RuntimeError, message: "no available UARTS for serial connection #{port}, maximum is 4"
-  end
   
-  def connect(["serial", port, baud], state = %MAVLink.Router{uarts: [next_free_uart | _free_uarts]}) do
-    attached_ports = UART.enumerate()
-    case {Map.has_key?(attached_ports, port), parse_positive_integer(baud)} do
-      {false, _} ->
-        raise ArgumentError, message: "port #{port} not attached"
-      {_, :error} ->
-        raise ArgumentError, message: "invalid baud rate #{baud}"
-      {true, parsed_baud} ->
-        case UART.open(next_free_uart, port, speed: parsed_baud, active: true) do
-          :ok ->
-            put_in(state,
-              [:connections, {:serial, port}],
-              struct(MAVLink.SerialConnection, %{uart: next_free_uart}))
-          {:error, _} ->
-            raise RuntimeError, message: "could not open serial port #{port}"
+  def handle_info({:circuits_uart, port, raw}, receiving_connection=%MAVLink.SerialConnection{buffer: buffer}, dialect) do
+    case binary_to_frame_and_tail(buffer <> raw) do
+      :not_a_frame ->
+        # Noise or malformed frame
+        Logger.warn("SerialConnection.handle_info: Not a frame buffer: #{inspect(buffer)} raw: #{inspect(raw)}")
+        {:error, :not_a_frame, port, struct(receiving_connection, [buffer: <<>>])}
+      {nil, rest} ->
+        {:error, :incomplete_frame, port, struct(receiving_connection, [buffer: rest])}
+      {received_frame, rest} ->
+        # Rest could include a complete message, return later to try emptying the buffer
+        if byte_size(rest) >= @smallest_mavlink_message, do: send self(), {:circuits_uart, port, <<>>}
+        case validate_and_unpack(received_frame, dialect) do
+          {:ok, valid_frame} ->
+            Logger.debug("SerialConnection.handle_info received frame #{inspect received_frame}}") # DEBUG
+            {:ok, port, struct(receiving_connection, [buffer: rest]), valid_frame}
+          :unknown_message ->
+            # We re-broadcast valid frames with unknown messages
+            Logger.warn "rebroadcasting unknown message with id #{received_frame.message_id}}"
+            {:ok, port, struct(receiving_connection, [buffer: rest]), struct(received_frame, [target: :broadcast])}
+          reason ->
+              Logger.warn(
+                "SerialConnection.handle_info: frame received failed: #{Atom.to_string(reason)}")
+              {:error, reason, port, struct(receiving_connection, [buffer: rest])}
         end
     end
   end
   
   
-  def handle_info({:serial, _sock, _addr, _port, _}, state) do
-    # TODO and that signature is wrong
-    {:noreply, state}
+  def connect(["serial", port, baud, uart], controlling_process) do
+    case UART.open(uart, port, speed: baud, active: true) do
+      :ok ->
+        Logger.info("Opened serial port #{port} at #{baud} baud")
+        send(
+          controlling_process,
+          {
+            :add_connection,
+            port,
+            struct(
+              MAVLink.SerialConnection,
+              [port: port, baud: baud, uart: uart]
+            )
+          }
+        )
+        UART.controlling_process(uart, controlling_process)
+      {:error, _} ->
+        Logger.warn "could not open serial port #{port}. Retrying in 1 second"
+        :timer.sleep(1000)
+        connect(["serial", port, baud, uart], controlling_process)
+    end
   end
   
+  
+  def forward(%MAVLink.SerialConnection{uart: uart},
+      frame=%Frame{version: 1, mavlink_1_raw: packet}) do
+    Logger.debug("SerialConnection.forward v1 frame #{inspect frame}}") # DEBUG
+    UART.write(uart, packet)
+  end
+  
+  def forward(%MAVLink.SerialConnection{uart: uart},
+      frame=%Frame{version: 2, mavlink_2_raw: packet}) do
+    Logger.debug("SerialConnection.forward v2 frame #{inspect frame}}") # DEBUG
+    UART.write(uart, packet)
+  end
 
 end
