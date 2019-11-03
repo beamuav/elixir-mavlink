@@ -20,7 +20,7 @@ defmodule MAVLink.TCPOutConnection do
     case binary_to_frame_and_tail(buffer <> raw) do
       :not_a_frame ->
         # Noise or malformed frame
-        Logger.warn("TCPOutConnection.handle_info: Not a frame #{inspect(raw)}")
+        Logger.warn("TCPOutConnection.handle_info: Not a frame #{inspect(buffer <> raw)}")
         {:error, :not_a_frame, socket, struct(receiving_connection, [buffer: <<>>])}
       {nil, rest} ->
         {:error, :incomplete_frame, socket, struct(receiving_connection, [buffer: rest])}
