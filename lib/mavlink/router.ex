@@ -22,11 +22,12 @@ defmodule MAVLink.Router do
   alias MAVLink.Frame
   alias MAVLink.Message
   alias MAVLink.Router
-  #alias MAVLink.SerialConnection
+  alias MAVLink.SerialConnection
   alias MAVLink.TCPOutConnection
   alias MAVLink.Types
   alias MAVLink.UDPInConnection
   alias MAVLink.UDPOutConnection
+  alias Circuits.UART
   
   
   # Router State
@@ -46,7 +47,6 @@ defmodule MAVLink.Router do
     routes: %{},                              # Connection and MAVLink version tuple keyed by MAVLink addresses
     subscriptions: [],                        # Local Connection Elixir process queries
     sequence_number: 0,                       # Sequence number of next sent message
-    uarts: []                                 # Circuit.UART Pool
   ]
   @type mavlink_address :: Types.mavlink_address  # Can't used qualified type as map key
   @type mavlink_connection :: Types.connection
@@ -59,7 +59,6 @@ defmodule MAVLink.Router do
                routes: %{mavlink_address: {mavlink_connection, Types.version}},
                subscriptions: [],
                sequence_number: Types.sequence_number,
-               uarts: [pid]
              }
   
              
@@ -279,14 +278,22 @@ defmodule MAVLink.Router do
   
   # No equivalent close to handle for UDP
   
-#  def handle_info(message = {:serial, port, _, _, _}, state) do
-#    {
-#      :noreply,
-#      SerialConnection.handle_info(message, state.connections[port], state.dialect)
-#      |> update_route_info(state)
-#      |> route
-#    }
-#  end
+  def handle_info(message = {:circuits_uart, port, raw}, state) when is_binary(raw) do
+    {
+      :noreply,
+      SerialConnection.handle_info(message, state.connections[port], state.dialect)
+      |> update_route_info(state)
+      |> route
+    }
+  end
+  
+  def handle_info({:circuits_uart, port, {:error, _reason}}, state) do
+    %SerialConnection{baud: baud, uart: uart} = state.connections[port]
+    spawn SerialConnection, :connect, [["serial", port, baud, :poolboy.checkout(MAVLink.UARTPool)], self()]
+    UART.close(uart)
+    :poolboy.checkin(MAVLink.UARTPool, uart) # After checkout to make sure we get a fresh one, this one might be reused later
+    {:noreply, remove_connection(port, state)}
+  end
 
   def handle_info({:add_connection, connection_key, connection},
         state=%Router{connections: connections}) do
@@ -299,7 +306,7 @@ defmodule MAVLink.Router do
     }
   end
   
-  def handle_info(_, state) do
+  def handle_info(_msg, state) do
     {:noreply, state}
   end
   
@@ -315,7 +322,7 @@ defmodule MAVLink.Router do
   defp connect(tokens = ["udpin" | _]), do: spawn UDPInConnection, :connect, [validate_address_and_port(tokens), self()]
   defp connect(tokens = ["udpout" | _]), do: spawn UDPOutConnection, :connect, [validate_address_and_port(tokens), self()]
   defp connect(tokens = ["tcpout" | _]), do: spawn TCPOutConnection, :connect, [validate_address_and_port(tokens), self()]
-  #defp connect(tokens = ["serial" | _], state), do: spawn SerialConnection, :connect, [tokens, self()]
+  defp connect(tokens = ["serial" | _]), do: spawn SerialConnection, :connect, [validate_port_and_baud(tokens), self()]
   defp connect([invalid_protocol | _]), do: raise(ArgumentError, message: "invalid protocol #{invalid_protocol}")
   
   
@@ -410,9 +417,13 @@ defmodule MAVLink.Router do
   defp forward(connection=%UDPInConnection{}, frame), do: UDPInConnection.forward(connection, frame)
   defp forward(connection=%UDPOutConnection{}, frame), do: UDPOutConnection.forward(connection, frame)
   defp forward(connection=%TCPOutConnection{}, frame), do: TCPOutConnection.forward(connection, frame)
+  defp forward(connection=%SerialConnection{}, frame), do: SerialConnection.forward(connection, frame)
  
   #  Forward a message to a local subscribed Elixir process.
   #  TODO after all the changes perhaps we could try factoring out LocalConnection again...
+  defp forward(:local, frame = %Frame{message: nil}, subscriptions) do
+    forward(:local, struct(frame, message: %{__struct__: :unknown}), subscriptions)
+  end
   defp forward(:local, frame = %Frame{
         source_system: source_system,
         source_component: source_component,
@@ -450,6 +461,19 @@ defmodule MAVLink.Router do
         raise ArgumentError, message: "invalid port #{port}"
       {parsed_address, parsed_port} ->
         [protocol, parsed_address, parsed_port]
+    end
+  end
+  
+  
+  defp validate_port_and_baud(["serial", port, baud]) do
+    case {Map.has_key?(UART.enumerate(), port), parse_positive_integer(baud)} do
+      {false, _} ->
+        raise ArgumentError, message: "port #{port} not attached"
+      {_, :error} ->
+        raise ArgumentError, message: "invalid baud rate #{baud}"
+      {true, parsed_baud} ->
+        # Have to checkout from pool in main process
+        ["serial", port, parsed_baud, :poolboy.checkout(MAVLink.UARTPool)]
     end
   end
   
