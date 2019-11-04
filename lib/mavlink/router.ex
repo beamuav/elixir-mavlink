@@ -421,6 +421,10 @@ defmodule MAVLink.Router do
  
   #  Forward a message to a local subscribed Elixir process.
   #  TODO after all the changes perhaps we could try factoring out LocalConnection again...
+  #  TODO I think this will work now with :local key in connections, pack_and_send could send a
+  #  TODO frame to handle_info like any other connection receiving a message
+  #  TODO but remember local gets to see everything, maybe matching system component always
+  #  TODO says yes for the local system component?
   defp forward(:local, frame = %Frame{message: nil}, subscriptions) do
     forward(:local, struct(frame, message: %{__struct__: :unknown}), subscriptions)
   end
@@ -466,9 +470,9 @@ defmodule MAVLink.Router do
   
   
   defp validate_port_and_baud(["serial", port, baud]) do
-    case {Map.has_key?(UART.enumerate(), port), parse_positive_integer(baud)} do
+    case {is_binary(port), parse_positive_integer(baud)} do
       {false, _} ->
-        raise ArgumentError, message: "port #{port} not attached"
+        raise ArgumentError, message: "Invalid port #{port}"
       {_, :error} ->
         raise ArgumentError, message: "invalid baud rate #{baud}"
       {true, parsed_baud} ->
@@ -510,6 +514,7 @@ defmodule MAVLink.Router do
   
   
   # Known system/components matching target with 0 wildcard
+  # TODO always add :local
   defp matching_system_components(q_system, q_component,
          %Router{routes: routes}) do
     Enum.filter(
