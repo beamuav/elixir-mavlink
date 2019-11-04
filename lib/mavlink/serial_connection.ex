@@ -29,7 +29,9 @@ defmodule MAVLink.SerialConnection do
     case binary_to_frame_and_tail(buffer <> raw) do
       :not_a_frame ->
         # Noise or malformed frame
-        Logger.warn("SerialConnection.handle_info: Not a frame buffer: #{inspect(buffer)} raw: #{inspect(raw)}")
+        if byte_size(buffer) + byte_size(raw) > 0 do
+          Logger.warn("SerialConnection.handle_info: Not a frame: #{inspect(buffer <> raw)}")
+        end
         {:error, :not_a_frame, port, struct(receiving_connection, [buffer: <<>>])}
       {nil, rest} ->
         {:error, :incomplete_frame, port, struct(receiving_connection, [buffer: rest])}
