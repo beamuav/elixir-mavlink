@@ -83,7 +83,7 @@ defmodule MAVLink.Frame do
   
   def binary_to_frame_and_tail(raw_and_rest=<<0xfd, # MAVLink version 2
       payload_length::unsigned-integer-size(8),
-      _incompatible_flags::unsigned-integer-size(8), # need to match otherwise infinite buffer
+      incompatible_flags::unsigned-integer-size(8),
       compatible_flags::unsigned-integer-size(8),
       sequence_number::unsigned-integer-size(8),
       source_system::unsigned-integer-size(8),
@@ -92,25 +92,33 @@ defmodule MAVLink.Frame do
       payload::binary-size(payload_length),
       checksum::little-unsigned-integer-size(16),
       rest::binary>>) do
-    {
-      struct(MAVLink.Frame, [
-        version: 2,
-        payload_length: payload_length,
-        incompatible_flags: 0,                # TODO handle incompatible flags
-        compatible_flags: compatible_flags,
-        sequence_number: sequence_number,
-        source_system: source_system,
-        source_component: source_component,
-        message_id: message_id,
-        payload: payload,
-        checksum: checksum,
-        mavlink_2_raw: binary_part(
-          raw_and_rest,
-          0,
-          byte_size(raw_and_rest) - byte_size(rest))
-      ]),
-      rest
-    }
+    case incompatible_flags do
+      0 ->
+        # Vanilla MAVLink 2, we can deal with this
+        {
+          struct(MAVLink.Frame, [
+            version: 2,
+            payload_length: payload_length,
+            incompatible_flags: 0,
+            compatible_flags: compatible_flags,
+            sequence_number: sequence_number,
+            source_system: source_system,
+            source_component: source_component,
+            message_id: message_id,
+            payload: payload,
+            checksum: checksum,
+            mavlink_2_raw: binary_part(
+              raw_and_rest,
+              0,
+              byte_size(raw_and_rest) - byte_size(rest))
+          ]),
+          rest
+        }
+      _ ->
+        # We don't support any incompatible flags at present
+        # e.g. signing, so drop the frame
+        {nil, rest}
+    end
   end
   
   def binary_to_frame_and_tail(unfinished_mavlink_1_frame=<<0xfe, _::binary>>), do: {nil, unfinished_mavlink_1_frame}
