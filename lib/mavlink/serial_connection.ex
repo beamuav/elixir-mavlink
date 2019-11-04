@@ -54,25 +54,31 @@ defmodule MAVLink.SerialConnection do
   
   
   def connect(["serial", port, baud, uart], controlling_process) do
-    case UART.open(uart, port, speed: baud, active: true) do
-      :ok ->
-        Logger.info("Opened serial port #{port} at #{baud} baud")
-        send(
-          controlling_process,
-          {
-            :add_connection,
-            port,
-            struct(
-              MAVLink.SerialConnection,
-              [port: port, baud: baud, uart: uart]
-            )
-          }
-        )
-        UART.controlling_process(uart, controlling_process)
-      {:error, _} ->
-        Logger.warn "could not open serial port #{port}. Retrying in 1 second"
-        :timer.sleep(1000)
-        connect(["serial", port, baud, uart], controlling_process)
+    if Map.has_key?(UART.enumerate(), port) do
+      case UART.open(uart, port, speed: baud, active: true) do
+        :ok ->
+          Logger.info("Opened serial port #{port} at #{baud} baud")
+          send(
+            controlling_process,
+            {
+              :add_connection,
+              port,
+              struct(
+                MAVLink.SerialConnection,
+                [port: port, baud: baud, uart: uart]
+              )
+            }
+          )
+          UART.controlling_process(uart, controlling_process)
+        {:error, _} ->
+          Logger.warn "Could not open serial port #{port}. Retrying in 1 second"
+          :timer.sleep(1000)
+          connect(["serial", port, baud, uart], controlling_process)
+      end
+    else
+      Logger.warn "Serial port #{port} not attached. Retrying in 1 second"
+      :timer.sleep(1000)
+      connect(["serial", port, baud, uart], controlling_process)
     end
   end
   
