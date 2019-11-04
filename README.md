@@ -17,7 +17,7 @@ by adding `mavlink` to your list of dependencies in `mix.exs`:
   ```elixir
  def deps do
    [
-     {:mavlink, "~> 0.7.0"}
+     {:mavlink, "~> 0.8.0"}
    ]
  end
  ```
@@ -48,10 +48,10 @@ Add `MAVLink.Application` with no start arguments to your `mix.exs`. You need to
 and list the connections to other vehicles in `config.exs`:
 
 ```
-config :mavlink, dialect: APM, connections: ["udpout:127.0.0.1:14550", "tcpout:127.0.0.1:5760"]
+config :mavlink, dialect: APM, connections: ["serial:/dev/cu.usbserial-A603KH3Y:57600", "udpout:127.0.0.1:14550", "tcpout:127.0.0.1:5760"]
 ```
 
-The above config specifies the APM dialect we generated and connects to a ground station listening for 
+The above config specifies the APM dialect we generated and connects to a a vehicle on a radio modem, a ground station listening for 
 UDP packets on 14550 and a SITL vehicle listening for TCP connections on 5760. Remember 'out' means client, 
 'in' means server.
 
@@ -107,7 +107,16 @@ MAV.pack_and_send(
 )
 ```
 
+## Router Architecture
+The MAVLink application is to Elixir/Erlang code what MAVProxy is to its Python modules: a router
+that sits alongside them and gives them access to other MAVLink systems over its connections. Unlike
+MAVProxy it is not responsible for starting/stopping/scheduling Elixir/Erlang code.
+
+The router is supervised. On a failure the configured connections and previous subscriptions are 
+restored immediately. If a connection fails or is not available at startup the router will attempt to
+reconnect each second and continue routing frames on the remaining connections. If a subscriber fails
+it will be automatically unsubscribed and any new subscriber will be responsible for reconnection.
+
 ## Roadmap
-- Serial Connections
-- MAVLink microservice/protocol helpers
+- MAVLink microservice/protocol helpers (probably a separate project)
 - Signed MAVLink v2 messages
