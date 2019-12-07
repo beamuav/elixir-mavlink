@@ -52,7 +52,7 @@ defmodule MAVLink.Frame do
              }
              
  
-  @spec binary_to_frame_and_tail(binary) :: {MAVLink.Frame.t, binary} | binary
+  @spec binary_to_frame_and_tail(binary) :: {MAVLink.Frame.t, binary} | {nil, binary} | :not_a_frame
   def binary_to_frame_and_tail(raw_and_rest=<<0xfe, # MAVLink version 1
       payload_length::unsigned-integer-size(8),
       sequence_number::unsigned-integer-size(8),
@@ -127,32 +127,21 @@ defmodule MAVLink.Frame do
   def binary_to_frame_and_tail(<<>>), do: :not_a_frame
   
   
-  @spec validate_and_unpack(MAVLink.Frame, module) :: {:ok, MAVLink.Frame} | :failed_to_unpack | :checksum_invalid | :unknown_message
-  def validate_and_unpack(frame, dialect) do
-    case apply(dialect, :msg_attributes, [frame.message_id]) do
+  @spec validate_and_unpack(MAVLink.Frame.t, module) :: {:ok, MAVLink.Frame.t} | :failed_to_unpack | :checksum_invalid | :unknown_message
+  def validate_and_unpack(frame=%MAVLink.Frame{message_id: message_id, version: version, payload: payload}, dialect) do
+    case apply(dialect, :msg_attributes, [message_id]) do
       {:ok, crc_extra, expected_length, target} ->
-        if frame.checksum == (
-               :binary.bin_to_list(
-                  %{
-                    1 => frame.mavlink_1_raw,
-                    2 => frame.mavlink_2_raw
-                  }[frame.version],
-                  {
-                    1,
-                    frame.payload_length + %{
-                                             1 => 5,
-                                             2 => 9
-                                           }[frame.version]
-                  }
-               )
-                |> x25_crc()
-                |> x25_crc([crc_extra])) do
+        if frame.checksum == (:binary.bin_to_list(
+                                %{1 => frame.mavlink_1_raw, 2 => frame.mavlink_2_raw}[frame.version],
+                                {1, frame.payload_length + %{1 => 5, 2 => 9}[frame.version]})
+                              |> x25_crc()
+                              |> x25_crc([crc_extra])) do
           payload_truncated_length = 8 * (expected_length - frame.payload_length)  # Only used to undo MAVLink 2 payload truncation
           try do  # Too many ways for unpack to fail with dodgy messages...
             case apply(dialect, :unpack, [
-              frame.message_id,
-              frame.version,
-              frame.payload <> (if payload_truncated_length > 0 and frame.version > 1, do: <<0::size(payload_truncated_length)>>, else: <<>>)]) do
+              message_id,
+              version,
+              payload <> (if payload_truncated_length > 0 and version > 1, do: <<0::size(payload_truncated_length)>>, else: <<>>)]) do
               {:ok, message} ->
                 case target do
                   :broadcast ->
@@ -189,21 +178,21 @@ defmodule MAVLink.Frame do
                     ])}
                 end
               _ ->
-                Logger.warn("validate_and_unpack: Failed to unpack #{inspect(frame)}")
                 :failed_to_unpack
             end
           rescue
-            FunctionClauseError -> Logger.warn Logger.warn("validate_and_unpack: Failed to unpack #{inspect(frame)}, couldn't match payload")
+            _ ->
+              :ok = Logger.warn Logger.warn("validate_and_unpack: Failed to unpack #{inspect(frame)}, couldn't match payload")
+              :failed_to_unpack
           end
-          else
-            Logger.warn("validate_and_unpack: Checksum invalid #{inspect(frame)}")
-            :checksum_invalid
-          end
-        _ ->
-          Logger.warn("validate_and_unpack: Unknown message #{inspect(frame)}")
-          :unknown_message
-      end
-      
+        else
+          :ok = Logger.warn("validate_and_unpack: Checksum invalid #{inspect(frame)}")
+          :checksum_invalid
+        end
+      _ ->
+        :ok = Logger.warn("validate_and_unpack: Unknown message #{inspect(frame)}")
+        :unknown_message
+    end
   end
   
   
