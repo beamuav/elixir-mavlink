@@ -29,7 +29,7 @@ defmodule MAVLink.UDPOutConnection do
     case binary_to_frame_and_tail(raw) do
       :not_a_frame ->
         # Noise or malformed frame
-        Logger.warn("UDPOutConnection.handle_info: Not a frame #{inspect(raw)}")
+        :ok = Logger.warn("UDPOutConnection.handle_info: Not a frame #{inspect(raw)}")
         {:error, :not_a_frame, {socket, source_addr, source_port}, receiving_connection}
       {received_frame, _rest} -> # UDP sends frame per packet, so ignore rest
         case validate_and_unpack(received_frame, dialect) do
@@ -39,10 +39,10 @@ defmodule MAVLink.UDPOutConnection do
             {:ok, {socket, source_addr, source_port}, receiving_connection, valid_frame}
           :unknown_message ->
             # We re-broadcast valid frames with unknown messages
-            Logger.warn "relaying unknown message with id #{received_frame.message_id}}"
+            :ok = Logger.warn "relaying unknown message with id #{received_frame.message_id}}"
             {:ok, {socket, source_addr, source_port}, receiving_connection, struct(received_frame, [target: :broadcast])}
           reason ->
-              Logger.warn(
+              :ok = Logger.warn(
                 "UDPOutConnection.handle_info: frame received from " <>
                 "#{Enum.join(Tuple.to_list(source_addr), ".")}:#{source_port} failed: #{Atom.to_string(reason)}")
               {:error, reason, {socket, source_addr, source_port}, receiving_connection}
@@ -54,7 +54,7 @@ defmodule MAVLink.UDPOutConnection do
   def connect(["udpout", address, port], controlling_process) do
     case :gen_udp.open(0, [:binary, ip: address, active: :true]) do
       {:ok, socket} ->
-        Logger.info("Opened udpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}")
+        :ok = Logger.info("Opened udpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}")
         send(
           controlling_process,
           {
@@ -68,7 +68,7 @@ defmodule MAVLink.UDPOutConnection do
         )
         :gen_udp.controlling_process(socket, controlling_process)
       other ->
-        Logger.warn("Could not open udpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}: #{inspect(other)}. Retrying in 1 second")
+        :ok = Logger.warn("Could not open udpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}: #{inspect(other)}. Retrying in 1 second")
         :timer.sleep(1000)
         connect(["udpout", address, port], controlling_process)
     end
