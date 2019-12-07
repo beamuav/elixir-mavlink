@@ -41,3 +41,4 @@ MAVLink.ex
 # macOS kruft
 
 .DS_Store
+/out/
