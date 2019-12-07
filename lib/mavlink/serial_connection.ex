@@ -85,12 +85,12 @@ defmodule MAVLink.SerialConnection do
   
   
   def forward(%MAVLink.SerialConnection{uart: uart},
-      frame=%Frame{version: 1, mavlink_1_raw: packet}) do
+      %Frame{version: 1, mavlink_1_raw: packet}) do
     UART.write(uart, packet)
   end
   
   def forward(%MAVLink.SerialConnection{uart: uart},
-      frame=%Frame{version: 2, mavlink_2_raw: packet}) do
+      %Frame{version: 2, mavlink_2_raw: packet}) do
     UART.write(uart, packet)
   end
 
