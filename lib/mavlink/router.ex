@@ -214,8 +214,8 @@ defmodule MAVLink.Router do
     # We can only pack payload at this point because we nee router state to get source
     # system/component and sequence number for frame
     try do
-      {:ok, message_id, {:ok, crc_extra, _, targeted?}, payload} = Message.pack(message, version)
-      {target_system, target_component} = if targeted? do
+      {:ok, message_id, {:ok, crc_extra, _, target}, payload} = Message.pack(message, version)
+      {target_system, target_component} = if target != :broadcast do
         {message.target_system, message.target_component}
       else
         {0, 0}
@@ -232,7 +232,7 @@ defmodule MAVLink.Router do
             message_id: message_id,
             target_system: target_system,
             target_component: target_component,
-            targeted?: targeted?,
+            target: target,
             message: message,
             payload: payload,
             crc_extra: crc_extra])
@@ -266,7 +266,7 @@ defmodule MAVLink.Router do
   # to us if successful) and initialise Router state
   def init(args) do
     LocalConnection.connect(:local, args.system, args.component)
-    map(args.connection_strings, &connect/1)
+    _ = map(args.connection_strings, &connect/1)
     {:ok, %Router{dialect: args.dialect, connection_strings: args.connection_strings}}
   end
   
@@ -335,7 +335,7 @@ defmodule MAVLink.Router do
   def handle_info({:circuits_uart, port, {:error, _reason}}, state) do
     %SerialConnection{baud: baud, uart: uart} = state.connections[port]
     spawn SerialConnection, :connect, [["serial", port, baud, :poolboy.checkout(MAVLink.UARTPool)], self()]
-    UART.close(uart)
+    :ok = UART.close(uart)
     # After checkout to make sure we get a fresh UART, this one might be reused later
     :poolboy.checkin(MAVLink.UARTPool, uart)
     {:noreply, remove_connection(port, state)}
@@ -383,10 +383,10 @@ defmodule MAVLink.Router do
   # Handle user configured connections by spawning a process to try to connect. If successful they will send
   # us an :add_connection message with the details. The local connection gets added automatically.
   defp connect(connection_string) when is_binary(connection_string), do: connect String.split(connection_string, [":", ","])
-  defp connect(tokens = ["udpin" | _]), do: spawn UDPInConnection, :connect, [validate_address_and_port(tokens), self()]
-  defp connect(tokens = ["udpout" | _]), do: spawn UDPOutConnection, :connect, [validate_address_and_port(tokens), self()]
-  defp connect(tokens = ["tcpout" | _]), do: spawn TCPOutConnection, :connect, [validate_address_and_port(tokens), self()]
-  defp connect(tokens = ["serial" | _]), do: spawn SerialConnection, :connect, [validate_port_and_baud(tokens), self()]
+  defp connect(tokens = ["udpin" | _]), do: spawn(UDPInConnection, :connect, [validate_address_and_port(tokens), self()])
+  defp connect(tokens = ["udpout" | _]), do: spawn(UDPOutConnection, :connect, [validate_address_and_port(tokens), self()])
+  defp connect(tokens = ["tcpout" | _]), do: spawn(TCPOutConnection, :connect, [validate_address_and_port(tokens), self()])
+  defp connect(tokens = ["serial" | _]), do: spawn(SerialConnection, :connect, [validate_port_and_baud(tokens), self()])
   defp connect([invalid_protocol | _]), do: raise(ArgumentError, message: "invalid protocol #{invalid_protocol}")
   
   
@@ -515,7 +515,7 @@ defmodule MAVLink.Router do
         state=%Router{connections: connections}}) do
     recipients = matching_system_components(target_system, target_component, state)
     if match?({^recipients, ^source_system, ^source_component}, {[:local], connections.local.system, connections.local.component}) do
-      Logger.warn("Could not send message #{Atom.to_string(message_type)} to #{target_system}/#{target_component}: destination unreachable")
+      :ok = Logger.warn("Could not send message #{Atom.to_string(message_type)} to #{target_system}/#{target_component}: destination unreachable")
     end
     for connection_key <- recipients do
       forward(connections[connection_key], frame)
