@@ -19,7 +19,7 @@ defmodule MAVLink.Utils do
   List extension fields separately so that we can
   not include them for MAVLink 1 messages
   """
-  @spec wire_order([ ]) :: {[ ], [ ]}
+  @spec wire_order([%{type: String.t, is_extension: boolean}]) :: [[%{}]]
   def wire_order(fields) do
     type_order_map = %{
       uint64_t:                 1,
@@ -27,7 +27,7 @@ defmodule MAVLink.Utils do
       double:                   1,
       uint32_t:                 2,
       int32_t:                  2,
-      float:                    2,
+      float:                     2,
       uint16_t:                 3,
       int16_t:                  3,
       uint8_t:                  4,
