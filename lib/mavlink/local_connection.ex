@@ -57,10 +57,10 @@ defmodule MAVLink.LocalConnection do
         :local,
         case Agent.start(fn -> [] end, name: MAVLink.SubscriptionCache) do
           {:ok, _} ->
-            Logger.info("Started Subscription Cache")
+            :ok = Logger.info("Started Subscription Cache")
             local_connection  # No subscriptions to restore
           {:error, {:already_started, _}} ->
-            Logger.info("Restoring subscriptions from Subscription Cache")
+            :ok = Logger.info("Restoring subscriptions from Subscription Cache")
             reduce(
               Agent.get(MAVLink.SubscriptionCache, fn subs -> subs end),
               local_connection,
@@ -109,7 +109,7 @@ defmodule MAVLink.LocalConnection do
 
   # Subscription request from subscriber
   def subscribe(query, pid, local_connection) do
-    Logger.info("Subscribe #{inspect(pid)} to query #{inspect(query)}")
+    :ok = Logger.info("Subscribe #{inspect(pid)} to query #{inspect(query)}")
     # Monitor so that we can unsubscribe dead processes
     Process.monitor(pid)
     # Uniq prevents duplicate subscriptions
@@ -125,7 +125,7 @@ defmodule MAVLink.LocalConnection do
   
   # Unsubscribe request from subscriber
   def unsubscribe(pid, local_connection) do
-    Logger.info("Unsubscribe #{inspect(pid)}")
+    :ok = Logger.info("Unsubscribe #{inspect(pid)}")
     %LocalConnection{
       local_connection | subscriptions:
       (
@@ -138,7 +138,7 @@ defmodule MAVLink.LocalConnection do
   
   # Automatically unsubscribe a dead subscriber process
   def subscriber_down(pid, local_connection) do
-    Logger.info("Subscriber #{inspect(pid)} exited")
+    :ok = Logger.info("Subscriber #{inspect(pid)} exited")
     %LocalConnection{
       local_connection | subscriptions:
       (
@@ -150,7 +150,7 @@ defmodule MAVLink.LocalConnection do
   
   
   defp update_subscription_cache(subscriptions) do
-    Logger.info("Update subscription cache: #{inspect(subscriptions)}")
+    :ok = Logger.info("Update subscription cache: #{inspect(subscriptions)}")
     Agent.update(MAVLink.SubscriptionCache, fn _ -> subscriptions end)
     subscriptions
   end
