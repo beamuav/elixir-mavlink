@@ -30,24 +30,23 @@ defmodule MAVLink.SerialConnection do
       :not_a_frame ->
         # Noise or malformed frame
         if byte_size(buffer) + byte_size(raw) > 0 do
-          Logger.warn("SerialConnection.handle_info: Not a frame: #{inspect(buffer <> raw)}")
+          :ok = Logger.warn("SerialConnection.handle_info: Not a frame: #{inspect(buffer <> raw)}")
         end
         {:error, :not_a_frame, port, struct(receiving_connection, [buffer: <<>>])}
       {nil, rest} ->
         {:error, :incomplete_frame, port, struct(receiving_connection, [buffer: rest])}
       {received_frame, rest} ->
         # Rest could include a complete message, return later to try emptying the buffer
-        if byte_size(rest) >= @smallest_mavlink_message, do: send self(), {:circuits_uart, port, <<>>}
+        if byte_size(rest) >= @smallest_mavlink_message, do: send(self(), {:circuits_uart, port, <<>>})
         case validate_and_unpack(received_frame, dialect) do
           {:ok, valid_frame} ->
-            Logger.debug("SerialConnection.handle_info received frame #{inspect received_frame}}") # DEBUG
             {:ok, port, struct(receiving_connection, [buffer: rest]), valid_frame}
           :unknown_message ->
             # We re-broadcast valid frames with unknown messages
-            Logger.warn "rebroadcasting unknown message with id #{received_frame.message_id}}"
+            :ok = Logger.warn "rebroadcasting unknown message with id #{received_frame.message_id}}"
             {:ok, port, struct(receiving_connection, [buffer: rest]), struct(received_frame, [target: :broadcast])}
           reason ->
-              Logger.warn(
+              :ok = Logger.warn(
                 "SerialConnection.handle_info: frame received failed: #{Atom.to_string(reason)}")
               {:error, reason, port, struct(receiving_connection, [buffer: rest])}
         end
@@ -59,7 +58,7 @@ defmodule MAVLink.SerialConnection do
     if Map.has_key?(UART.enumerate(), port) do
       case UART.open(uart, port, speed: baud, active: true) do
         :ok ->
-          Logger.info("Opened serial port #{port} at #{baud} baud")
+          :ok = Logger.info("Opened serial port #{port} at #{baud} baud")
           send(
             controlling_process,
             {
@@ -73,12 +72,12 @@ defmodule MAVLink.SerialConnection do
           )
           UART.controlling_process(uart, controlling_process)
         {:error, _} ->
-          Logger.warn "Could not open serial port #{port}. Retrying in 1 second"
+          :ok = Logger.warn "Could not open serial port #{port}. Retrying in 1 second"
           :timer.sleep(1000)
           connect(["serial", port, baud, uart], controlling_process)
       end
     else
-      Logger.warn "Serial port #{port} not attached. Retrying in 1 second"
+      :ok = Logger.warn "Serial port #{port} not attached. Retrying in 1 second"
       :timer.sleep(1000)
       connect(["serial", port, baud, uart], controlling_process)
     end
@@ -87,13 +86,11 @@ defmodule MAVLink.SerialConnection do
   
   def forward(%MAVLink.SerialConnection{uart: uart},
       frame=%Frame{version: 1, mavlink_1_raw: packet}) do
-    Logger.debug("SerialConnection.forward v1 frame #{inspect frame}}") # DEBUG
     UART.write(uart, packet)
   end
   
   def forward(%MAVLink.SerialConnection{uart: uart},
       frame=%Frame{version: 2, mavlink_2_raw: packet}) do
-    Logger.debug("SerialConnection.forward v2 frame #{inspect frame}}") # DEBUG
     UART.write(uart, packet)
   end
 
