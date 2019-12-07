@@ -4,7 +4,7 @@ defmodule MAVLink.Mixfile do
   def project do
     [
       app: :mavlink,
-      version: "0.8.0",
+      version: "0.9.0",
       elixir: "~> 1.9",
       start_permanent: Mix.env() == :prod,
       description: description(),
@@ -50,10 +50,7 @@ defmodule MAVLink.Mixfile do
 
   defp deps do
     [
-      #{:circuits_uart, "~> 1.3"},
-      {:circuits_uart,
-        git: "https://github.com/beamuav/circuits_uart.git",
-        tag: "controlling-process"},
+      {:circuits_uart, "~> 1.4"},
       {:poolboy, "~> 1.5"},
       {:dialyzex, "~> 1.2.0", only: :dev, runtime: false},
       {:ex_doc, "~> 0.20.2", only: :dev, runtime: false}
