@@ -30,7 +30,7 @@ defmodule MAVLink.SerialConnection do
       :not_a_frame ->
         # Noise or malformed frame
         if byte_size(buffer) + byte_size(raw) > 0 do
-          :ok = Logger.warn("SerialConnection.handle_info: Not a frame: #{inspect(buffer <> raw)}")
+          :ok = Logger.debug("SerialConnection.handle_info: Not a frame: #{inspect(buffer <> raw)}")
         end
         {:error, :not_a_frame, port, struct(receiving_connection, [buffer: <<>>])}
       {nil, rest} ->
@@ -43,10 +43,10 @@ defmodule MAVLink.SerialConnection do
             {:ok, port, struct(receiving_connection, [buffer: rest]), valid_frame}
           :unknown_message ->
             # We re-broadcast valid frames with unknown messages
-            :ok = Logger.warn "rebroadcasting unknown message with id #{received_frame.message_id}}"
+            :ok = Logger.debug "rebroadcasting unknown message with id #{received_frame.message_id}}"
             {:ok, port, struct(receiving_connection, [buffer: rest]), struct(received_frame, [target: :broadcast])}
           reason ->
-              :ok = Logger.warn(
+              :ok = Logger.debug(
                 "SerialConnection.handle_info: frame received failed: #{Atom.to_string(reason)}")
               {:error, reason, port, struct(receiving_connection, [buffer: rest])}
         end

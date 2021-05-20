@@ -29,7 +29,7 @@ defmodule MAVLink.UDPInConnection do
     case binary_to_frame_and_tail(raw) do
       :not_a_frame ->
         # Noise or malformed frame
-        :ok = Logger.warn("UDPInConnection.handle_info: Not a frame #{inspect(raw)}")
+        :ok = Logger.debug("UDPInConnection.handle_info: Not a frame #{inspect(raw)}")
         {:error, :not_a_frame, {socket, source_addr, source_port}, receiving_connection}
       {received_frame, _rest} -> # UDP sends frame per packet, so ignore rest
         case validate_and_unpack(received_frame, dialect) do
@@ -39,10 +39,10 @@ defmodule MAVLink.UDPInConnection do
             {:ok, {socket, source_addr, source_port}, receiving_connection, valid_frame}
           :unknown_message ->
             # We re-broadcast valid frames with unknown messages
-            :ok = Logger.warn "rebroadcasting unknown message with id #{received_frame.message_id}}"
+            :ok = Logger.debug "rebroadcasting unknown message with id #{received_frame.message_id}}"
             {:ok, {socket, source_addr, source_port}, receiving_connection, struct(received_frame, [target: :broadcast])}
           reason ->
-              :ok = Logger.warn(
+              :ok = Logger.debug(
                 "UDPInConnection.handle_info: frame received from " <>
                 "#{Enum.join(Tuple.to_list(source_addr), ".")}:#{source_port} failed: #{Atom.to_string(reason)}")
               {:error, reason, {socket, source_addr, source_port}, receiving_connection}

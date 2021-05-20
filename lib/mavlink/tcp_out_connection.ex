@@ -21,7 +21,7 @@ defmodule MAVLink.TCPOutConnection do
       :not_a_frame ->
         # Noise or malformed frame
         if byte_size(buffer) + byte_size(raw) > 0 do
-          :ok = Logger.warn("TCPOutConnection.handle_info: Not a frame #{inspect(buffer <> raw)}")
+          :ok = Logger.debug("TCPOutConnection.handle_info: Not a frame #{inspect(buffer <> raw)}")
         end
         {:error, :not_a_frame, socket, struct(receiving_connection, [buffer: <<>>])}
       {nil, rest} ->
@@ -34,10 +34,10 @@ defmodule MAVLink.TCPOutConnection do
             {:ok, socket, struct(receiving_connection, [buffer: rest]), valid_frame}
           :unknown_message ->
             # We re-broadcast valid frames with unknown messages
-            :ok = Logger.warn "rebroadcasting unknown message with id #{received_frame.message_id}}"
+            :ok = Logger.debug "rebroadcasting unknown message with id #{received_frame.message_id}}"
             {:ok, socket, struct(receiving_connection, [buffer: rest]), struct(received_frame, [target: :broadcast])}
           reason ->
-              :ok = Logger.warn(
+              :ok = Logger.debug(
                 "TCPOutConnection.handle_info: frame received failed: #{Atom.to_string(reason)}")
               {:error, reason, socket, struct(receiving_connection, [buffer: rest])}
         end
@@ -48,7 +48,7 @@ defmodule MAVLink.TCPOutConnection do
   def connect(["tcpout", address, port], controlling_process) do
     case :gen_tcp.connect(address, port, [:binary, active: :true]) do
       {:ok, socket} ->
-        :ok = Logger.info("Opened tcpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}")
+        :ok = Logger.debug("Opened tcpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}")
         send(
           controlling_process,
           {
@@ -62,7 +62,7 @@ defmodule MAVLink.TCPOutConnection do
         )
         :gen_tcp.controlling_process(socket, controlling_process)
       other ->
-        :ok = Logger.warn("Could not open tcpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}: #{inspect(other)}. Retrying in 1 second")
+        :ok = Logger.debug("Could not open tcpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}: #{inspect(other)}. Retrying in 1 second")
         :timer.sleep(1000)
         connect(["tcpout", address, port], controlling_process)
     end

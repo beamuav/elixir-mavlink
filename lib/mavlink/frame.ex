@@ -182,15 +182,15 @@ defmodule MAVLink.Frame do
             end
           rescue
             _ ->
-              :ok = Logger.warn Logger.warn("validate_and_unpack: Failed to unpack #{inspect(frame)}, couldn't match payload")
+              :ok = Logger.debug("validate_and_unpack: Failed to unpack #{inspect(frame)}, couldn't match payload")
               :failed_to_unpack
           end
         else
-          :ok = Logger.warn("validate_and_unpack: Checksum invalid #{inspect(frame)}")
+          :ok = Logger.debug("validate_and_unpack: Checksum invalid #{inspect(frame)}")
           :checksum_invalid
         end
       _ ->
-        :ok = Logger.warn("validate_and_unpack: Unknown message #{inspect(frame)}")
+        :ok = Logger.debug("validate_and_unpack: Unknown message #{inspect(frame)}")
         :unknown_message
     end
   end
