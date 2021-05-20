@@ -211,12 +211,12 @@ defmodule MAVLink.Router do
   ```
   """
   def pack_and_send(message, version \\ 2) do
-    # We can only pack payload at this point because we nee router state to get source
+    # We can only pack payload at this point because we need router state to get source
     # system/component and sequence number for frame
     try do
       {:ok, message_id, {:ok, crc_extra, _, target}, payload} = Message.pack(message, version)
       {target_system, target_component} = if target != :broadcast do
-        {message.target_system, message.target_component}
+        {message.target_system, Map.get(message, :target_component, 0)}
       else
         {0, 0}
       end
@@ -342,7 +342,7 @@ defmodule MAVLink.Router do
   end
   
   # A local subscribing Elixir process has crashed, remove them from our subscriber list
-  def handle_info({:DOWN, _, :process, pid, _}, state), do: {:noreply, update_in(state, [:connections, :local], &LocalConnection.subscriber_down(pid, &1))}
+  def handle_info({:DOWN, _, :process, pid, _}, state), do: {:noreply, update_in(state, [Access.key!(:connections), :local], &LocalConnection.subscriber_down(pid, &1))}
   
   # A call to pack_and_send() from a local Elixir process, sent as a vanilla message for symmetry with other connection types
   def handle_info({:local, frame}, state) do
@@ -515,7 +515,7 @@ defmodule MAVLink.Router do
         state=%Router{connections: connections}}) do
     recipients = matching_system_components(target_system, target_component, state)
     if match?({^recipients, ^source_system, ^source_component}, {[:local], connections.local.system, connections.local.component}) do
-      :ok = Logger.warn("Could not send message #{Atom.to_string(message_type)} to #{target_system}/#{target_component}: destination unreachable")
+      :ok = Logger.debug("Could not send message #{Atom.to_string(message_type)} to #{target_system}/#{target_component}: destination unreachable")
     end
     for connection_key <- recipients do
       forward(connections[connection_key], frame)
