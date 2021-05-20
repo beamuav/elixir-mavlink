@@ -108,9 +108,10 @@ MAV.pack_and_send(
 ```
 
 ## Router Architecture
-The MAVLink application is to Elixir/Erlang code what MAVProxy is to its Python modules: a router
-that sits alongside them and gives them access to other MAVLink systems over its connections. Unlike
-MAVProxy it is not responsible for starting/stopping/scheduling Elixir/Erlang code.
+The MAVLink application is to Elixir/Erlang code what [MAVProxy](https://ardupilot.org/mavproxy/)
+is to its Python modules: a router that sits alongside them and gives them access to other MAVLink
+systems over its connections. Unlike MAVProxy it is not responsible for starting/stopping/scheduling
+Elixir/Erlang code.
 
 The router is supervised. On a failure the configured connections and previous subscriptions are 
 restored immediately. If a connection fails or is not available at startup the router will attempt to
@@ -118,5 +119,5 @@ reconnect each second and continue routing frames on the remaining connections. 
 it will be automatically unsubscribed and any new subscriber will be responsible for reconnection.
 
 ## Roadmap
-- MAVLink microservice/protocol helpers (probably a separate project)
+- MAVLink microservice/protocol helpers (see [elixir_mavlink_util](https://github.com/beamuav/elixir_mavlink_util))
 - Signed MAVLink v2 messages
