@@ -11,7 +11,7 @@ defmodule MAVLink.TCPOutConnection do
   require Logger
 
   alias MAVLink.Frame
-  alias MAVLink.{RouteTable, WireConnection}
+  alias MAVLink.{MailboxDrain, RouteTable, WireConnection}
 
   import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, validate_and_unpack: 2]
 
@@ -103,10 +103,12 @@ defmodule MAVLink.TCPOutConnection do
   end
 
   def handle_info({:tcp, socket, raw}, state) do
+    message = {:tcp, socket, raw}
+
     new_state =
       state
-      |> then(&ingest({:tcp, socket, raw}, &1))
-      |> drain_tcp(socket)
+      |> then(&ingest(message, &1))
+      |> MailboxDrain.tcp(socket, &ingest/2)
       |> rearm_socket()
 
     {:noreply, new_state}
@@ -145,17 +147,6 @@ defmodule MAVLink.TCPOutConnection do
     parse_incoming(message, connection, state.dialect)
     |> WireConnection.route_result(self())
     |> from_delegate(state)
-  end
-
-  defp drain_tcp(state, socket) do
-    receive do
-      {:tcp, ^socket, raw} ->
-        state
-        |> then(&ingest({:tcp, socket, raw}, &1))
-        |> drain_tcp(socket)
-    after
-      0 -> state
-    end
   end
 
   defp to_delegate(%__MODULE__{socket: socket, buffer: buffer}) do

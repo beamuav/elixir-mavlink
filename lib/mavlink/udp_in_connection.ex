@@ -9,7 +9,7 @@ defmodule MAVLink.UDPInConnection do
   require Logger
 
   alias MAVLink.Frame
-  alias MAVLink.{RouteTable, WireConnection}
+  alias MAVLink.{MailboxDrain, RouteTable, WireConnection}
 
   import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, validate_and_unpack: 2]
 
@@ -21,7 +21,8 @@ defmodule MAVLink.UDPInConnection do
     :socket,
     :dialect,
     :clients,
-    :test
+    :test,
+    :active_n
   ]
 
   def child_spec(opts) do
@@ -40,15 +41,20 @@ defmodule MAVLink.UDPInConnection do
     GenServer.start_link(__MODULE__, Map.put(opts, :test, true))
   end
 
+  @default_active :once
+
   @impl true
   def init(%{dialect: dialect, listen_address: address, listen_port: port} = opts) do
+    active = Map.get(opts, :active, @default_active)
+
     state = %__MODULE__{
       dialect: dialect,
       listen_address: address,
       listen_port: port,
       socket: Map.get(opts, :socket),
       clients: Map.get(opts, :clients, %{}),
-      test: Map.get(opts, :test, false)
+      test: Map.get(opts, :test, false),
+      active_n: active
     }
 
     if state.test do
@@ -60,8 +66,8 @@ defmodule MAVLink.UDPInConnection do
   end
 
   @impl true
-  def handle_info(:connect, %__MODULE__{listen_address: address, listen_port: port} = state) do
-    case :gen_udp.open(port, [:binary, ip: address, active: true]) do
+  def handle_info(:connect, %__MODULE__{listen_address: address, listen_port: port, active_n: active} = state) do
+    case :gen_udp.open(port, [:binary, {:ip, address}, {:active, active}]) do
       {:ok, socket} ->
         Logger.info("Opened udpin:#{Enum.join(Tuple.to_list(address), ".")}:#{port}")
         {:noreply, %{state | socket: socket}}
@@ -77,7 +83,15 @@ defmodule MAVLink.UDPInConnection do
   end
 
   def handle_info({:udp, socket, source_addr, source_port, raw}, state) do
-    {:noreply, ingest({:udp, socket, source_addr, source_port, raw}, state)}
+    message = {:udp, socket, source_addr, source_port, raw}
+
+    new_state =
+      state
+      |> then(&ingest(message, &1))
+      |> MailboxDrain.udp(socket, &ingest/2)
+      |> rearm_socket()
+
+    {:noreply, new_state}
   end
 
   def handle_info({:mavlink_forward_raw, packet, key}, state) when is_binary(packet) do
@@ -151,6 +165,15 @@ defmodule MAVLink.UDPInConnection do
 
   defp connection_key({:udp, socket, source_addr, source_port, _raw}),
     do: {socket, source_addr, source_port}
+
+  defp rearm_socket(%__MODULE__{test: true} = state), do: state
+
+  defp rearm_socket(%__MODULE__{socket: socket, active_n: active} = state) when is_port(socket) do
+    :inet.setopts(socket, [{:active, active}])
+    state
+  end
+
+  defp rearm_socket(state), do: state
 
   defp legacy_handle_udp({:udp, socket, source_addr, source_port, raw}, receiving_connection, dialect) do
     case binary_to_frame_and_tail(raw) do

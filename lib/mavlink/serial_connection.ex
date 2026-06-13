@@ -12,7 +12,7 @@ defmodule MAVLink.SerialConnection do
 
   alias MAVLink.Frame
   alias Circuits.UART
-  alias MAVLink.{RouteTable, WireConnection}
+  alias MAVLink.{MailboxDrain, RouteTable, WireConnection}
 
   import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, validate_and_unpack: 2]
 
@@ -66,11 +66,12 @@ defmodule MAVLink.SerialConnection do
   @impl true
   def handle_info(:connect, %__MODULE__{port: port, baud: baud, uart: uart} = state) do
     if Map.has_key?(UART.enumerate(), port) do
-      case UART.open(uart, port, speed: baud, active: true) do
+      case UART.open(uart, port, speed: baud, active: false) do
         :ok ->
           Logger.info("Opened serial port #{port} at #{baud} baud")
           UART.controlling_process(uart, self())
           RouteTable.register_wire(self(), port)
+          send(self(), :recv_uart)
           {:noreply, %{state | uart: uart, connection_key: port}}
 
         {:error, _} ->
@@ -86,7 +87,11 @@ defmodule MAVLink.SerialConnection do
   end
 
   def handle_info({:circuits_uart, port, raw}, state) when is_binary(raw) do
-    {:noreply, ingest({:circuits_uart, port, raw}, state)}
+    {:noreply, process_serial_data(port, raw, state)}
+  end
+
+  def handle_info(:recv_uart, state) do
+    {:noreply, pull_uart_available(state)}
   end
 
   def handle_info({:circuits_uart, port, {:error, _reason}}, %__MODULE__{port: port, uart: uart, baud: baud} = state) do
@@ -130,6 +135,35 @@ defmodule MAVLink.SerialConnection do
     |> WireConnection.route_result(self())
     |> from_delegate(state)
   end
+
+  defp process_serial_data(port, raw, state) do
+    message = {:circuits_uart, port, raw}
+
+    state
+    |> then(&ingest(message, &1))
+    |> MailboxDrain.circuits_uart(port, &ingest/2)
+  end
+
+  defp pull_uart_available(%__MODULE__{test: true} = state), do: state
+
+  defp pull_uart_available(%__MODULE__{uart: uart, port: port} = state) when not is_nil(uart) do
+    case UART.read(uart, 0) do
+      {:ok, <<>>} ->
+        send(self(), :recv_uart)
+        state
+
+      {:ok, raw} ->
+        state
+        |> process_serial_data(port, raw)
+        |> pull_uart_available()
+
+      {:error, _} ->
+        send(self(), :recv_uart)
+        state
+    end
+  end
+
+  defp pull_uart_available(state), do: state
 
   defp to_delegate(%__MODULE__{port: port, uart: uart, buffer: buffer}) do
     %__MODULE__{port: port, uart: uart, buffer: buffer}
