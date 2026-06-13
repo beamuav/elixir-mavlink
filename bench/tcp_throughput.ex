@@ -4,8 +4,10 @@ defmodule MAVLink.Bench.TCPThroughput do
   def run(opts \\ []) do
     Code.require_file("test/support/dialect_fixture.ex", File.cwd!())
     Code.require_file("test/support/frame_fixtures.ex", File.cwd!())
+    Code.require_file("bench/support/gcs_counter.ex", File.cwd!())
 
     alias MAVLink.Test.{DialectFixture, FrameFixtures}
+    alias MAVLink.Bench.GCSCounter
 
     output_file = Keyword.get(opts, :output_file, "bench/results/baseline.txt")
     label = Keyword.get(opts, :label, "baseline")
@@ -45,12 +47,11 @@ defmodule MAVLink.Bench.TCPThroughput do
     :ok = :inet.setopts(client, active: false)
     Process.sleep(300)
 
-    {:ok, counter} = Agent.start_link(fn -> 0 end)
+    {:ok, counter} = GCSCounter.start_link()
 
     counter_pid =
-      spawn(fn ->
-        :ok = MAVLink.Router.subscribe(message: TestMavlink.Message.Heartbeat, source_system: 1)
-        count_loop(counter)
+      GCSCounter.start_subscriber(counter, fn ->
+        MAVLink.Router.subscribe(message: TestMavlink.Message.Heartbeat, source_system: 1)
       end)
 
     Process.sleep(100)
@@ -63,12 +64,12 @@ defmodule MAVLink.Bench.TCPThroughput do
       end)
 
     Process.sleep(warmup_s * 1000)
-    Agent.update(counter, fn _ -> 0 end)
+    :ok = GCSCounter.reset(counter)
 
     start_ms = System.monotonic_time(:millisecond)
     Process.sleep(measure_s * 1000)
     elapsed_ms = System.monotonic_time(:millisecond) - start_ms
-    count = Agent.get(counter, & &1)
+    count = GCSCounter.get(counter)
     send(flooder, :stop)
 
     rate = if elapsed_ms > 0, do: count / (elapsed_ms / 1000), else: 0.0
@@ -102,14 +103,6 @@ defmodule MAVLink.Bench.TCPThroughput do
     GenServer.stop(MAVLink.LocalConnection, :brutal_kill)
     GenServer.stop(MAVLink.ConnectionSupervisor, :brutal_kill)
     GenServer.stop(MAVLink.RouteTable, :brutal_kill)
-  end
-
-  defp count_loop(counter) do
-    receive do
-      _ ->
-        Agent.update(counter, &(&1 + 1))
-        count_loop(counter)
-    end
   end
 
   defp flood_loop(client, raw) do

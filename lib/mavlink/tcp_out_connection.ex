@@ -22,7 +22,8 @@ defmodule MAVLink.TCPOutConnection do
     :buffer,
     :dialect,
     :connection_key,
-    :test
+    :test,
+    :active_n
   ]
 
   @type t :: %__MODULE__{
@@ -51,8 +52,12 @@ defmodule MAVLink.TCPOutConnection do
     GenServer.start_link(__MODULE__, Map.put(opts, :test, true))
   end
 
+  @default_active :once
+
   @impl true
   def init(%{dialect: dialect, address: address, port: port} = opts) do
+    active = Map.get(opts, :active, @default_active)
+
     state = %__MODULE__{
       dialect: dialect,
       address: address,
@@ -60,7 +65,8 @@ defmodule MAVLink.TCPOutConnection do
       buffer: Map.get(opts, :buffer, <<>>),
       socket: Map.get(opts, :socket),
       connection_key: Map.get(opts, :connection_key),
-      test: Map.get(opts, :test, false)
+      test: Map.get(opts, :test, false),
+      active_n: active
     }
 
     if state.test do
@@ -74,8 +80,8 @@ defmodule MAVLink.TCPOutConnection do
   end
 
   @impl true
-  def handle_info(:connect, %__MODULE__{address: address, port: port} = state) do
-    case :gen_tcp.connect(address, port, [:binary, active: true]) do
+  def handle_info(:connect, %__MODULE__{address: address, port: port, active_n: active} = state) do
+    case :gen_tcp.connect(address, port, [:binary, {:active, active}]) do
       {:ok, socket} ->
         Logger.debug("Opened tcpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}")
         RouteTable.register_wire(self(), socket)
@@ -97,7 +103,12 @@ defmodule MAVLink.TCPOutConnection do
   end
 
   def handle_info({:tcp, socket, raw}, state) do
-    {:noreply, ingest({:tcp, socket, raw}, state)}
+    new_state =
+      state
+      |> then(&ingest({:tcp, socket, raw}, &1))
+      |> rearm_socket()
+
+    {:noreply, new_state}
   end
 
   def handle_info({:mavlink_forward_raw, packet, key}, %__MODULE__{socket: socket, connection_key: key} = state)
@@ -142,6 +153,15 @@ defmodule MAVLink.TCPOutConnection do
   defp from_delegate(%__MODULE__{socket: socket, buffer: buffer}, state) do
     %{state | socket: socket, buffer: buffer, connection_key: socket || state.connection_key}
   end
+
+  defp rearm_socket(%__MODULE__{test: true} = state), do: state
+
+  defp rearm_socket(%__MODULE__{socket: socket, active_n: active} = state) when is_port(socket) do
+    :inet.setopts(socket, [{:active, active}])
+    state
+  end
+
+  defp rearm_socket(state), do: state
 
   defp legacy_handle_tcp({:tcp, socket, raw}, receiving_connection = %__MODULE__{buffer: buffer}, dialect) do
     case binary_to_frame_and_tail(buffer <> raw) do

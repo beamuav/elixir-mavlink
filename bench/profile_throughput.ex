@@ -4,8 +4,10 @@ defmodule MAVLink.Bench.ProfileThroughput do
   def run(opts \\ []) do
     Code.require_file("test/support/dialect_fixture.ex", File.cwd!())
     Code.require_file("test/support/frame_fixtures.ex", File.cwd!())
+    Code.require_file("bench/support/gcs_counter.ex", File.cwd!())
 
     alias MAVLink.Test.{DialectFixture, FrameFixtures}
+    alias MAVLink.Bench.GCSCounter
 
     label = Keyword.get(opts, :label, "profile")
     output_file = Keyword.get(opts, :output_file, "bench/results/profile-#{label}.txt")
@@ -22,12 +24,11 @@ defmodule MAVLink.Bench.ProfileThroughput do
     :ok = :inet.setopts(client, active: false)
     Process.sleep(300)
 
-    {:ok, counter} = Agent.start_link(fn -> 0 end)
+    {:ok, counter} = GCSCounter.start_link()
 
     counter_pid =
-      spawn(fn ->
-        :ok = MAVLink.Router.subscribe(message: TestMavlink.Message.Heartbeat, source_system: 1)
-        count_loop(counter)
+      GCSCounter.start_subscriber(counter, fn ->
+        MAVLink.Router.subscribe(message: TestMavlink.Message.Heartbeat, source_system: 1)
       end)
 
     Process.sleep(100)
@@ -45,11 +46,11 @@ defmodule MAVLink.Bench.ProfileThroughput do
 
     :cprof.start()
 
-    Agent.update(counter, fn _ -> 0 end)
+    :ok = GCSCounter.reset(counter)
     start_ms = System.monotonic_time(:millisecond)
     Process.sleep(measure_s * 1000)
     elapsed_ms = System.monotonic_time(:millisecond) - start_ms
-    count = Agent.get(counter, & &1)
+    count = GCSCounter.get(counter)
 
     :cprof.stop()
     :eprof.stop_profiling()
@@ -78,7 +79,7 @@ defmodule MAVLink.Bench.ProfileThroughput do
     File.write!(output_file, report)
     IO.puts("\nWrote #{output_file}")
 
-    cleanup(setup, counter_pid, flooder, client, listen_socket, counter)
+    cleanup(setup, counter_pid, flooder, client, listen_socket)
   end
 
   defp start_stack(dialect, port) do
@@ -318,14 +319,6 @@ defmodule MAVLink.Bench.ProfileThroughput do
   defp label_pid({:registered_name, _}), do: "unnamed"
   defp label_pid(_), do: "unknown"
 
-  defp count_loop(counter) do
-    receive do
-      _ ->
-        Agent.update(counter, &(&1 + 1))
-        count_loop(counter)
-    end
-  end
-
   defp flood_loop(client, raw) do
     :gen_tcp.send(client, raw)
 
@@ -338,7 +331,7 @@ defmodule MAVLink.Bench.ProfileThroughput do
     _ -> :ok
   end
 
-  defp cleanup(setup, counter_pid, flooder, client, listen_socket, counter) do
+  defp cleanup(setup, counter_pid, flooder, client, listen_socket) do
     Process.exit(counter_pid, :kill)
     Process.exit(flooder, :kill)
     :gen_tcp.close(client)
@@ -352,12 +345,6 @@ defmodule MAVLink.Bench.ProfileThroughput do
       catch
         :exit, _ -> :ok
       end
-    end
-
-    try do
-      GenServer.stop(counter, :normal, 1_000)
-    catch
-      :exit, _ -> :ok
     end
   end
 end

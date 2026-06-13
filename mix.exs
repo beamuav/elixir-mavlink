@@ -28,7 +28,8 @@ defmodule MAVLink.Mixfile do
       benchmark: "run --no-start bench/tcp_throughput.exs",
       "benchmark.after": "run --no-start bench/tcp_throughput_after.exs",
       "benchmark.phase5": "run --no-start bench/tcp_throughput_phase5.exs",
-      "benchmark.profile": "run --no-start bench/profile_throughput.exs"
+      "benchmark.profile": "run --no-start bench/profile_throughput.exs",
+      "benchmark.backpressure": "run --no-start bench/tcp_throughput_backpressure.exs"
     ]
   end
 

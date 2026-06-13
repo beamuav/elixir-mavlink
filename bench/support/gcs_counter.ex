@@ -1,23 +1,32 @@
 defmodule MAVLink.Bench.GCSCounter do
   @moduledoc false
 
-  def start_counting do
-    spawn_link(fn -> loop(0) end)
+  def start_link do
+    counter = :atomics.new(1, signed: true)
+    {:ok, counter}
   end
 
-  defp loop(count) do
-    receive do
-      :get_count -> send(self(), {:count, count})
-      _ -> loop(count + 1)
-    after
-      0 -> loop(count)
-    end
+  def reset(counter) do
+    :atomics.put(counter, 1, 0)
+    :ok
   end
 
-  def count(pid) do
-    send(pid, :get_count)
+  def get(counter) do
+    :atomics.get(counter, 1)
+  end
+
+  def start_subscriber(counter, subscribe_fn) when is_function(subscribe_fn, 0) do
+    spawn(fn ->
+      :ok = subscribe_fn.()
+      count_loop(counter)
+    end)
+  end
+
+  defp count_loop(counter) do
     receive do
-      {:count, n} -> n
+      _ ->
+        :atomics.add(counter, 1, 1)
+        count_loop(counter)
     end
   end
 end

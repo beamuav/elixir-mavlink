@@ -55,4 +55,16 @@ Run profiles:
 MIX_ENV=test mix run --no-start bench/profile_throughput.exs
 PROFILE_LABEL=phase5 PROFILE_OUTPUT=bench/results/profile-phase5.txt
 bash bench/profile_compare.sh
+MIX_ENV=test mix benchmark.backpressure
 ```
+
+## Update: active :once + atomic subscriber (after-backpressure)
+
+| Version | Rate (msg/s) | TCP consumer max_queue |
+|---------|--------------|------------------------|
+| Phase 5 (active true, Agent counter) | ~900-960 | ~171,000 |
+| Phase 5 + active :once + :atomics counter | **~1,200** | **~17,600** |
+
+`{:active, :once}` on TCPOut re-arms after each processed message, preventing
+unbounded `{:tcp, ...}` mailbox growth. Atomic subscriber removes Agent
+GenServer contention from the measurement path.

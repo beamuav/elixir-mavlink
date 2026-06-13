@@ -1,0 +1,5 @@
+TCP throughput benchmark (after-backpressure)
+Elixir 1.14.0 OTP 25
+Measurement window: 5001 ms
+Messages received: 5999
+Rate: 1199.6 msg/s
