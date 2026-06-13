@@ -13,9 +13,13 @@ defmodule MAVLink.Mixfile do
       deps: deps(),
       dialyzer: [plt_add_apps: [:mix, :xmerl]],
       source_url: "https://github.com/robinhilliard/elixir-mavlink",
-      consolidate_protocols: Mix.env() != :test
+      consolidate_protocols: false,
+      elixirc_paths: elixirc_paths(Mix.env())
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support", "bench/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   # See https://virviil.github.io/2016/10/26/elixir-testing-without-starting-supervision-tree/
   defp aliases do
