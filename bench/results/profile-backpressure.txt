@@ -1,0 +1,28 @@
+TCP throughput profile (backpressure)
+Elixir 1.14.0 OTP 25
+Architecture: phase5 (per-connection GenServers)
+Measurement window: 5001 ms
+Messages received: 5901
+Rate: 1180.0 msg/s
+
+Profiled processes:
+  #PID<0.240.0> [registered_name: MAVLink.Router, current_function: {:gen_server, :loop, 7}, message_queue_len: 0, reductions: 296]
+  #PID<0.242.0> [registered_name: [], current_function: {MAVLink.Bench.GCSCounter, :count_loop, 1}, message_queue_len: 0, reductions: 166712]
+  #PID<0.241.0> [registered_name: [], current_function: {MAVLink.Frame, :binary_to_frame_and_tail, 1}, message_queue_len: 17656, reductions: 23871309]
+
+Message queue samples (max len per process):
+  MAVLink.Router: max_queue=0
+  unnamed: max_queue=197
+  unnamed: max_queue=17640
+
+Reductions delta over window (proxy for CPU work):
+  MAVLink.Router: reductions_delta=53
+  unnamed: reductions_delta=49854
+  unnamed: reductions_delta=14966242
+
+== eprof (time per function, profiled processes) ==
+
+
+== cprof (top call counts, whole VM) ==
+total_calls=0
+

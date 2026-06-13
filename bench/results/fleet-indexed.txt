@@ -1,0 +1,20 @@
+Multi-vehicle / multi-GCS throughput (indexed)
+Elixir 1.14.0 OTP 25
+Vehicles: 4  GCS subscribers: 5
+Message mix per vehicle: 3x VFR_HUD, 1x HEARTBEAT, 1x DATA16 (rotated)
+Measurement window: 5001 ms
+Total messages delivered: 2813583
+Aggregate rate: 562604.1 msg/s
+Per-GCS deliveries:
+  GCS 1 (VFR_HUD vehicle 1): 267177
+  GCS 2 (VFR_HUD vehicle 2): 223971
+  GCS 3 (VFR_HUD vehicle 3): 354093
+  GCS 4 (VFR_HUD vehicle 4): 209844
+  GCS 5 (wildcard logger): 1758498
+Delivery balance:
+  per-vehicle GCS with zero deliveries: 0/4
+  per-vehicle min/max: 209844/354093 (ratio 0.59)
+  wildcard deliveries: 1758498
+
+ETS sizes: routes=4 subscribers=5 peers=1
+Wire connections: 4

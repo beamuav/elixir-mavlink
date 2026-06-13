@@ -1,0 +1,25 @@
+TCP throughput profile (baseline)
+Elixir 1.14.0 OTP 25
+Architecture: baseline (central Router)
+Measurement window: 5001 ms
+Messages received: 4521
+Rate: 904.0 msg/s
+
+Profiled processes:
+  #PID<0.561.0> [registered_name: MAVLink.Router, current_function: {MAVLink.Frame, :binary_to_frame_and_tail, 1}, message_queue_len: 190768, reductions: 20594577]
+  #PID<0.565.0> [registered_name: [], current_function: {MAVLink.Bench.ProfileThroughput, :count_loop, 1}, message_queue_len: 0, reductions: 461096]
+
+Message queue samples (max len per process):
+  MAVLink.Router: max_queue=189193
+  unnamed: max_queue=7
+
+Reductions delta over window (proxy for CPU work):
+  MAVLink.Router: reductions_delta=13346727
+  unnamed: reductions_delta=124725
+
+== eprof (time per function, profiled processes) ==
+
+
+== cprof (top call counts, whole VM) ==
+total_calls=0
+

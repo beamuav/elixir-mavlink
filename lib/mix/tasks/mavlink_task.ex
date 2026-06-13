@@ -74,7 +74,7 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
         defmodule #{module_name} do
         
           import String, only: [replace_trailing: 3]
-          import MAVLink.Utils, only: [unpack_array: 2, unpack_float: 1]
+          import MAVLink.Utils, only: [unpack_float: 1]
           
           use Bitwise, only_operators: true
         
@@ -117,6 +117,12 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
           @spec msg_attributes(MAVLink.Types.message_id) :: {:ok, MAVLink.Types.crc_extra, pos_integer, target_type} | {:error, :unknown_message_id}
           #{message_code_fragments |> map(& &1.msg_attributes) |> join("") |> trim}
           def msg_attributes(_), do: {:error, :unknown_message_id}
+
+
+          @doc "Return the message module for a MAVLink message id"
+          @spec message_module_for(MAVLink.Types.message_id) :: module | nil
+          #{message_code_fragments |> map(& &1.message_module_for) |> join("") |> trim}
+          def message_module_for(_), do: nil
 
         
           @doc "Helper function for messages to pack bitmask fields"
@@ -310,6 +316,10 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
             """
               def msg_attributes(#{message.id}), do: {:ok, #{crc_extra}, #{expected_payload_size}, :#{target}}
             """,
+          message_module_for:
+            """
+              def message_module_for(#{message.id}), do: #{module_name}.Message.#{message_module_name}
+            """,
           unpack:
             """
               def unpack(#{message.id}, 1, <<#{unpack_binary_pattern}>>), do: {:ok, %#{module_name}.Message.#{message_module_name}{#{unpack_struct_fields}}}
@@ -334,6 +344,10 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
           msg_attributes:
             """
               def msg_attributes(#{message.id}), do: {:ok, #{crc_extra}, #{expected_payload_size}, :#{target}}
+            """,
+          message_module_for:
+            """
+              def message_module_for(#{message.id}), do: #{module_name}.Message.#{message_module_name}
             """,
           unpack:
             """
@@ -404,8 +418,9 @@ defmodule Mix.Tasks.Mavlink do # Mavlink case required for `mix mavlink ...` to 
     ~s[replace_trailing(#{downcase(name)}_f, <<0>>, "")]
   end
   
-  defp unpack_field_code_fragment(%{name: name, type: type}, _) do
-    "unpack_array(#{downcase(name)}_f, fn(<<elem::#{type_to_binary(type).pattern},rest::binary>>) ->  {elem, rest} end)"
+  defp unpack_field_code_fragment(%{name: name, type: type, ordinality: ordinality}, _)
+       when ordinality > 1 do
+    "(for <<elem::#{type_to_binary(type).pattern} <- #{downcase(name)}_f>>, do: elem)"
   end
   
   

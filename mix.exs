@@ -5,7 +5,7 @@ defmodule MAVLink.Mixfile do
     [
       app: :mavlink,
       version: "0.9.0",
-      elixir: "~> 1.9",
+      elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       description: description(),
       package: package(),
@@ -13,14 +13,26 @@ defmodule MAVLink.Mixfile do
       deps: deps(),
       dialyzer: [plt_add_apps: [:mix, :xmerl]],
       source_url: "https://github.com/robinhilliard/elixir-mavlink",
-      consolidate_protocols: Mix.env() != :test
+      consolidate_protocols: false,
+      elixirc_paths: elixirc_paths(Mix.env())
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support", "bench/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   # See https://virviil.github.io/2016/10/26/elixir-testing-without-starting-supervision-tree/
   defp aliases do
     [
-      test: "test --no-start"
+      test: "test --no-start",
+      benchmark: "run --no-start bench/tcp_throughput.exs",
+      "benchmark.after": "run --no-start bench/tcp_throughput_after.exs",
+      "benchmark.phase5": "run --no-start bench/tcp_throughput_phase5.exs",
+      "benchmark.profile": "run --no-start bench/profile_throughput.exs",
+      "benchmark.backpressure": "run --no-start bench/tcp_throughput_backpressure.exs",
+      "benchmark.fleet": "run --no-start bench/multi_fleet_throughput.exs",
+      "benchmark.profile.fleet": "run --no-start bench/profile_multi_fleet.exs",
+      "benchmark.routing": "run --no-start bench/routing_microbench.exs"
     ]
   end
 
@@ -44,16 +56,16 @@ defmodule MAVLink.Mixfile do
         connections: []
       ],
       mod: {MAVLink.Application, []},
-      extra_applications: [:logger]
+      extra_applications: [:logger, :xmerl]
     ]
   end
 
   defp deps do
     [
-      {:circuits_uart, "~> 1.4"},
+      {:circuits_uart, "~> 1.5.0"},
       {:poolboy, "~> 1.5"},
       {:dialyzex, "~> 1.2.0", only: :dev, runtime: false},
-      {:ex_doc, "~> 0.20.2", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.34.0", only: :dev, runtime: false}
     ]
   end
 

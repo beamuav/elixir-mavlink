@@ -1,0 +1,10 @@
+Routing microbench (indexed)
+Elixir 1.14.0 OTP 25
+Subscribers: 100
+Frames matched: 200000
+Non-empty matches: 200000
+matching_subscribers calls: 200000
+Elapsed: 997.9 ms
+Rate: 200422.7 lookups/s
+ETS subscribers: 100
+ETS subscriber_index: 100

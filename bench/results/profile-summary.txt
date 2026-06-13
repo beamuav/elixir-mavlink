@@ -1,0 +1,88 @@
+TCP throughput profile comparison (same host, same benchmark, 5s window)
+
+## Throughput under profiling
+
+| Version | Architecture | Rate (msg/s) | Consumer max mailbox |
+|---------|--------------|--------------|----------------------|
+| Baseline (a36a711) | Central Router | 904 | Router: 189,193 |
+| Phase 5 (current) | TCPOut GenServer | 960 | TCPOut: 170,989 |
+
+Earlier headline numbers (1379 / 1092 / 895) were run-to-run variance without profiling.
+Under controlled back-to-back profiling, rates are effectively the same.
+
+## Root cause: producer faster than single consumer
+
+Both architectures use `active: true` on TCP. The flooder sends as fast as possible.
+The consumer (Router or TCPOut GenServer) parses full MAVLink frames in one process.
+
+Mailbox samples show ~170k–190k queued `{:tcp, ...}` messages during the 5s window.
+The system is backlog-limited, not routing-table-limited.
+
+## Where CPU goes (Phase 5 eprof on TCPOut, from stderr capture)
+
+Approximate share on the TCP consumer process path:
+
+- legacy_handle_tcp / frame parse pipeline: ~51%
+- binary_to_frame_and_tail: ~19%
+- erlang:send to subscriber: ~18%
+- validate_and_unpack: ~9%
+- Forwarder + RouteTable (tab2list, match_object): ~2–4%
+
+Subscriber process (benchmark artifact):
+
+- count_loop uses Agent.update per message (~30% of subscriber eprof time)
+- This serializes delivery through a GenServer call and is not representative of a fast subscriber
+
+## Conclusion
+
+The refactor did not introduce a routing regression. The bottleneck moved with the work:
+
+- Baseline: Router mailbox backs up (~190k deep)
+- Phase 5: TCPOut mailbox backs up (~171k deep), Router idle (max_queue=0)
+
+Splitting Router did achieve the intended goal (Router off hot path).
+Throughput is unchanged because the limit is single-process frame parsing under active TCP flood.
+
+## What would actually improve this benchmark
+
+1. `{:active, N}` or `passive` + controlled recv (backpressure)
+2. Benchmark subscriber using `:atomics` or ETS increment instead of Agent
+3. Optional fast path: forward raw bytes without full decode when subscribers allow it
+
+Run profiles:
+
+```bash
+MIX_ENV=test mix run --no-start bench/profile_throughput.exs
+PROFILE_LABEL=phase5 PROFILE_OUTPUT=bench/results/profile-phase5.txt
+bash bench/profile_compare.sh
+MIX_ENV=test mix benchmark.backpressure
+```
+
+## Update: active :once + atomic subscriber (after-backpressure)
+
+| Version | Rate (msg/s) | TCP consumer max_queue |
+|---------|--------------|------------------------|
+| Phase 5 (active true, Agent counter) | ~900-960 | ~171,000 |
+| Phase 5 + active :once + :atomics counter | **~1,200** | **~17,600** |
+
+`{:active, :once}` on TCPOut re-arms after each processed message, preventing
+unbounded `{:tcp, ...}` mailbox growth. Atomic subscriber removes Agent
+GenServer contention from the measurement path.
+
+## Update: TCP mailbox drain loop (after-drain-loop)
+
+After handling one `{:tcp, socket, raw}`, `drain_tcp/2` pulls additional
+`{:tcp, ^socket, _}` messages from the GenServer mailbox (including self-sent
+`{:tcp, socket, <<>>}` triggers for multi-frame buffers) before a single
+`rearm_socket/1`. This batches coalesced TCP data through one GenServer turn
+instead of one `handle_info` + `setopts` per frame.
+
+| Version | Rate (msg/s) | TCP consumer max_queue (under eprof) |
+|---------|--------------|--------------------------------------|
+| Phase 5 + active :once + atomics | ~1,200 | ~17,600 |
+| + mailbox drain loop | **~200,000–210,000** | ~17,600 (eprof-limited to ~1,180) |
+
+Headline throughput (`mix benchmark.backpressure`) jumps ~170× because the prior
+~1,200 msg/s ceiling was mostly GenServer dispatch + `inet:setopts` per frame
+within coalesced TCP segments, not raw parse throughput. Profiling still reports
+~1,180 msg/s because eprof on the consumer dominates the measurement window.
