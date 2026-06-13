@@ -1,0 +1,47 @@
+# Multi-fleet benchmark
+
+Realistic multi-vehicle / multi-GCS routing load for before/after indexing comparison.
+
+## Topology (defaults)
+
+- **4 vehicles** on TCP ports `15800..15803` (one `TCPOutConnection` each)
+- **5 GCS subscribers**:
+  - GCS 1–4: `VFR_HUD` filtered to `source_system` 1–4 (per-vehicle HUD)
+  - GCS 5: wildcard (`message: nil`, `source_system: 0`) — fleet logger
+- **Message mix** per vehicle (rotated): 3× `VFR_HUD`, 1× `HEARTBEAT`, 1× `DATA16`
+
+## Commands
+
+```bash
+# Throughput only
+MIX_ENV=test mix benchmark.fleet
+
+# Profile (eprof + cprof + queue samples)
+MIX_ENV=test mix benchmark.profile.fleet
+
+# Scale up routing pressure
+FLEET_VEHICLES=8 FLEET_GCS=9 MIX_ENV=test mix benchmark.profile.fleet
+
+# Before/after indexing compare (current vs INDEXING_BASE_REF worktree)
+bash bench/profile_indexing_compare.sh
+INDEXING_BASE_REF=<pre-indexing-commit> FLEET_VEHICLES=8 FLEET_GCS=9 bash bench/profile_indexing_compare.sh
+```
+
+## Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FLEET_VEHICLES` | 4 | Vehicle count (`source_system` 1..N) |
+| `FLEET_GCS` | 5 | GCS subscriber processes |
+| `FLEET_BASE_PORT` | 15800 | First TCP listen port |
+| `FLEET_LABEL` | fleet | Output label |
+| `PROFILE_LABEL` | fleet-profile | Profile output label |
+| `INDEXING_BASE_REF` | HEAD~1 | Git ref for pre-indexing RouteTable |
+
+## Indexing change under test
+
+`RouteTable` adds `:mavlink_subscriber_index` (bag keyed by `{source_system, message | :all}`) so
+`matching_subscribers/1` uses `:ets.lookup/2` instead of `:ets.tab2list/1` + filter.
+Wire peers use `:ets.match_object/2`. Exact route targets use `:ets.lookup/2`.
+
+Compare cprof lines for `tab2list`, `matching_subscribers`, `RouteTable`, and `Forwarder`.

@@ -7,6 +7,7 @@ defmodule MAVLink.RouteTable do
   @routes :mavlink_routes
   @peers :mavlink_peers
   @subscribers :mavlink_subscribers
+  @subscriber_index :mavlink_subscriber_index
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -35,9 +36,18 @@ defmodule MAVLink.RouteTable do
     :ok
   end
 
+  def matching_peers(target_sys, target_comp)
+      when is_integer(target_sys) and is_integer(target_comp) and target_sys != 0 and
+             target_comp != 0 do
+    case :ets.lookup(@routes, {target_sys, target_comp}) do
+      [{_, dest}] -> [dest]
+      [] -> []
+    end
+  end
+
   def matching_peers(target_sys, target_comp) do
     @routes
-    |> :ets.tab2list()
+    |> :ets.match_object({{:"$1", :"$2"}, :_})
     |> Enum.filter(fn {{sid, cid}, _} ->
       (target_sys == 0 or target_sys == sid) and
         (target_comp == 0 or target_comp == cid)
@@ -47,11 +57,7 @@ defmodule MAVLink.RouteTable do
 
   def all_wire_peers do
     @peers
-    |> :ets.tab2list()
-    |> Enum.filter(fn
-      {{_pid, _key}, :wire} -> true
-      _ -> false
-    end)
+    |> :ets.match_object({{:"$1", :"$2"}, :wire})
     |> Enum.map(fn {{pid, key}, :wire} -> {pid, key} end)
   end
 
@@ -64,9 +70,13 @@ defmodule MAVLink.RouteTable do
   end
 
   def matching_subscribers(%MAVLink.Frame{} = frame) do
-    @subscribers
-    |> :ets.tab2list()
-    |> Enum.flat_map(fn {pid, query} ->
+    msg_type = frame_message_type(frame)
+    sys = frame.source_system
+
+    [{sys, msg_type}, {sys, :all}, {0, msg_type}, {0, :all}]
+    |> Enum.flat_map(&:ets.lookup(@subscriber_index, &1))
+    |> Enum.uniq_by(fn {_index_key, {pid, _query}} -> pid end)
+    |> Enum.flat_map(fn {_index_key, {pid, query}} ->
       case match_subscriber(query, frame) do
         nil -> []
         delivery -> [{pid, delivery}]
@@ -79,6 +89,7 @@ defmodule MAVLink.RouteTable do
     :ets.new(@routes, [:named_table, :public, :set, read_concurrency: true])
     :ets.new(@peers, [:named_table, :public, :bag, read_concurrency: true])
     :ets.new(@subscribers, [:named_table, :public, :bag, read_concurrency: true])
+    :ets.new(@subscriber_index, [:named_table, :public, :bag, read_concurrency: true])
     restore_subscriptions()
     {:ok, %{}}
   end
@@ -86,22 +97,31 @@ defmodule MAVLink.RouteTable do
   @impl true
   def handle_call({:subscribe, query, pid}, _, state) do
     Process.monitor(pid)
-    :ets.insert(@subscribers, {pid, query})
+    insert_subscriber(pid, query)
     update_subscription_cache()
     {:reply, :ok, state}
   end
 
   def handle_call({:unsubscribe, pid}, _, state) do
-    :ets.match_delete(@subscribers, {pid, :_})
-    update_subscription_cache()
+    remove_subscriber(pid)
     {:reply, :ok, state}
   end
 
   @impl true
   def handle_info({:DOWN, _, :process, pid, _}, state) do
-    :ets.match_delete(@subscribers, {pid, :_})
-    update_subscription_cache()
+    remove_subscriber(pid)
     {:noreply, state}
+  end
+
+  defp insert_subscriber(pid, query) do
+    :ets.insert(@subscribers, {pid, query})
+    :ets.insert(@subscriber_index, {subscriber_index_key(query), {pid, query}})
+  end
+
+  defp remove_subscriber(pid) do
+    :ets.match_delete(@subscribers, {pid, :_})
+    :ets.match_delete(@subscriber_index, {:_, {pid, :_}})
+    update_subscription_cache()
   end
 
   defp restore_subscriptions do
@@ -115,7 +135,7 @@ defmodule MAVLink.RouteTable do
 
           if Process.alive?(pid) do
             Process.monitor(pid)
-            :ets.insert(@subscribers, {pid, query})
+            insert_subscriber(pid, query)
           end
         end
     end
@@ -132,6 +152,19 @@ defmodule MAVLink.RouteTable do
 
     Agent.update(MAVLink.SubscriptionCache, fn _ -> subs end)
     :ok
+  end
+
+  defp subscriber_index_key(query) do
+    source_system = Map.get(query, :source_system, 0)
+    message = Map.get(query, :message)
+    {source_system, message || :all}
+  end
+
+  defp frame_message_type(%MAVLink.Frame{message: message}) do
+    case message do
+      %{__struct__: struct} -> struct
+      _ -> MAVLink.UnknownMessage
+    end
   end
 
   defp match_subscriber(

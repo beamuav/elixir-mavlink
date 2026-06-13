@@ -69,6 +69,43 @@ defmodule MAVLink.Test.RouteTableTest do
 
     assert [{^subscriber, msg}] = RouteTable.matching_subscribers(frame)
     assert msg.__struct__ == TestMavlink.Message.Heartbeat
+    assert :ets.lookup(:mavlink_subscriber_index, {5, TestMavlink.Message.Heartbeat}) != []
+  end
+
+  test "subscriber index narrows wildcard lookups" do
+    subscriber = self()
+
+    :ok =
+      RouteTable.subscribe(
+        %{
+          message: TestMavlink.Message.VfrHud,
+          source_system: 2,
+          source_component: 0,
+          target_system: 0,
+          target_component: 0,
+          as_frame: false
+        },
+        subscriber
+      )
+
+    heartbeat =
+      heartbeat_frame(source_system: 2)
+      |> Map.put(:message, struct(TestMavlink.Message.Heartbeat, [type: :mav_type_generic]))
+
+    vfr =
+      vfr_hud_frame(source_system: 2)
+      |> Map.put(:message, struct(TestMavlink.Message.VfrHud, [
+        airspeed: 12.5,
+        groundspeed: 11.0,
+        heading: 180,
+        throttle: 55,
+        alt: 120.0,
+        climb: 0.5
+      ]))
+
+    assert [] = RouteTable.matching_subscribers(heartbeat)
+    assert [{^subscriber, msg}] = RouteTable.matching_subscribers(vfr)
+    assert msg.__struct__ == TestMavlink.Message.VfrHud
   end
 
   test "unsubscribe removes subscriber on DOWN" do
@@ -84,5 +121,6 @@ defmodule MAVLink.Test.RouteTableTest do
     assert_receive {:DOWN, ^ref, :process, ^pid, _}, 500
     Process.sleep(20)
     assert :ets.tab2list(:mavlink_subscribers) == []
+    assert :ets.tab2list(:mavlink_subscriber_index) == []
   end
 end
