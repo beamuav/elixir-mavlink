@@ -23,7 +23,8 @@ defmodule MAVLink.TCPOutConnection do
     :dialect,
     :connection_key,
     :test,
-    :active_n
+    :active_n,
+    :register_wire
   ]
 
   @type t :: %__MODULE__{
@@ -66,12 +67,17 @@ defmodule MAVLink.TCPOutConnection do
       socket: Map.get(opts, :socket),
       connection_key: Map.get(opts, :connection_key),
       test: Map.get(opts, :test, false),
-      active_n: active
+      active_n: active,
+      register_wire: Map.get(opts, :register_wire, true)
     }
 
     if state.test do
       key = state.connection_key || state.socket
-      RouteTable.register_wire(self(), key)
+
+      if state.register_wire do
+        RouteTable.register_wire(self(), key)
+      end
+
       {:ok, %{state | connection_key: key}}
     else
       send(self(), :connect)
@@ -84,7 +90,11 @@ defmodule MAVLink.TCPOutConnection do
     case :gen_tcp.connect(address, port, [:binary, {:active, active}]) do
       {:ok, socket} ->
         Logger.debug("Opened tcpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}")
-        RouteTable.register_wire(self(), socket)
+
+        if state.register_wire do
+          RouteTable.register_wire(self(), socket)
+        end
+
         {:noreply, %{state | socket: socket, connection_key: socket, buffer: <<>>}}
 
       other ->

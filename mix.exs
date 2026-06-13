@@ -31,7 +31,8 @@ defmodule MAVLink.Mixfile do
       "benchmark.profile": "run --no-start bench/profile_throughput.exs",
       "benchmark.backpressure": "run --no-start bench/tcp_throughput_backpressure.exs",
       "benchmark.fleet": "run --no-start bench/multi_fleet_throughput.exs",
-      "benchmark.profile.fleet": "run --no-start bench/profile_multi_fleet.exs"
+      "benchmark.profile.fleet": "run --no-start bench/profile_multi_fleet.exs",
+      "benchmark.routing": "run --no-start bench/routing_microbench.exs"
     ]
   end
 

@@ -2,9 +2,15 @@
 
 Realistic multi-vehicle / multi-GCS routing load for before/after indexing comparison.
 
+## Root cause fix (2025-06)
+
+Bench vehicles use `register_wire: false` so broadcast frames are **not** cross-forwarded
+between TCP connections. Without this, 4 vehicles flooded each other's mailboxes and only
+1 vehicle appeared to deliver to GCS subscribers.
+
 ## Topology (defaults)
 
-- **4 vehicles** on TCP ports `15800..15803` (one `TCPOutConnection` each)
+- **4 vehicles** on TCP ports `15800..15803` (one `TCPOutConnection` each, no wire fan-out)
 - **5 GCS subscribers**:
   - GCS 1–4: `VFR_HUD` filtered to `source_system` 1–4 (per-vehicle HUD)
   - GCS 5: wildcard (`message: nil`, `source_system: 0`) — fleet logger
@@ -13,19 +19,31 @@ Realistic multi-vehicle / multi-GCS routing load for before/after indexing compa
 ## Commands
 
 ```bash
-# Throughput only
+# Multi-vehicle throughput
 MIX_ENV=test mix benchmark.fleet
 
-# Profile (eprof + cprof + queue samples)
+# Multi-vehicle profile (eprof overhead — use for call-path inspection only)
 MIX_ENV=test mix benchmark.profile.fleet
 
-# Scale up routing pressure
-FLEET_VEHICLES=8 FLEET_GCS=9 MIX_ENV=test mix benchmark.profile.fleet
+# Routing-only microbench (best for indexing A/B)
+MIX_ENV=test mix benchmark.routing
+bash bench/profile_indexing_routing_compare.sh
 
-# Before/after indexing compare (current vs INDEXING_BASE_REF worktree)
-bash bench/profile_indexing_compare.sh
-INDEXING_BASE_REF=<pre-indexing-commit> FLEET_VEHICLES=8 FLEET_GCS=9 bash bench/profile_indexing_compare.sh
+# End-to-end fleet throughput A/B (indexing is a small slice of total work)
+bash bench/profile_indexing_throughput_compare.sh
 ```
+
+## Measured indexing impact (100 subscribers, 200k lookups, Elixir 1.14 / OTP 25)
+
+| Benchmark | tab2list (14c4d80) | indexed (current) | Change |
+|-----------|-------------------|-------------------|--------|
+| **Routing microbench** (`matching_subscribers/1`) | 77,465 lookups/s | 200,423 lookups/s | **~2.6× faster** |
+| **Multi-fleet throughput** (4 vehicles, 5 GCS) | 511,944 msg/s | 562,604 msg/s | **~10% faster** |
+| **Per-vehicle GCS zero deliveries** | 0/4 | 0/4 | fixed |
+
+Routing microbench isolates subscriber matching. Fleet throughput is still dominated by
+TCP parse + mailbox drain; indexing only moves the needle once routing work is large enough
+(many GCS filters) or subscriber count is high.
 
 ## Environment variables
 
@@ -34,14 +52,6 @@ INDEXING_BASE_REF=<pre-indexing-commit> FLEET_VEHICLES=8 FLEET_GCS=9 bash bench/
 | `FLEET_VEHICLES` | 4 | Vehicle count (`source_system` 1..N) |
 | `FLEET_GCS` | 5 | GCS subscriber processes |
 | `FLEET_BASE_PORT` | 15800 | First TCP listen port |
-| `FLEET_LABEL` | fleet | Output label |
-| `PROFILE_LABEL` | fleet-profile | Profile output label |
-| `INDEXING_BASE_REF` | HEAD~1 | Git ref for pre-indexing RouteTable |
-
-## Indexing change under test
-
-`RouteTable` adds `:mavlink_subscriber_index` (bag keyed by `{source_system, message | :all}`) so
-`matching_subscribers/1` uses `:ets.lookup/2` instead of `:ets.tab2list/1` + filter.
-Wire peers use `:ets.match_object/2`. Exact route targets use `:ets.lookup/2`.
-
-Compare cprof lines for `tab2list`, `matching_subscribers`, `RouteTable`, and `Forwarder`.
+| `ROUTING_SUBSCRIBERS` | 50 | Routing microbench subscriber count |
+| `ROUTING_FRAMES` | 100000 | Routing microbench lookup iterations |
+| `INDEXING_BASE_REF` | 14c4d80 | Git ref for pre-indexing RouteTable |

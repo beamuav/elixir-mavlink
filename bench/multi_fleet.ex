@@ -107,7 +107,10 @@ defmodule MAVLink.Bench.MultiFleet do
     listen_sockets =
       for v <- 1..config.vehicles do
         port = config.base_port + v - 1
-        {:ok, socket} = :gen_tcp.listen(port, [:binary, active: false, reuseaddr: true, backlog: 1])
+
+        {:ok, socket} =
+          :gen_tcp.listen(port, [:binary, active: false, reuseaddr: true, backlog: 128])
+
         {v, port, socket}
       end
 
@@ -121,11 +124,6 @@ defmodule MAVLink.Bench.MultiFleet do
         name: MAVLink.LocalConnection
       )
 
-    connection_strings =
-      Enum.map(listen_sockets, fn {_v, port, _socket} ->
-        "tcpout:127.0.0.1:#{port}"
-      end)
-
     {:ok, router} =
       GenServer.start_link(
         MAVLink.Router,
@@ -133,14 +131,30 @@ defmodule MAVLink.Bench.MultiFleet do
           dialect: config.dialect,
           system: 245,
           component: 250,
-          connection_strings: connection_strings
+          connection_strings: []
         },
         name: MAVLink.Router
       )
 
-    Process.sleep(500)
+    vehicle_connections =
+      Enum.map(listen_sockets, fn {vehicle_id, port, _listen} ->
+        {:ok, pid} =
+          DynamicSupervisor.start_child(
+            MAVLink.ConnectionSupervisor,
+            {MAVLink.TCPOutConnection,
+             %{
+               dialect: config.dialect,
+               address: {127, 0, 0, 1},
+               port: port,
+               register_wire: false
+             }}
+          )
+
+        {vehicle_id, port, pid}
+      end)
 
     clients = await_clients(listen_sockets, 15_000)
+    verify_vehicle_links!(vehicle_connections, clients)
 
     {:ok, counter} = GCSCounter.start_link(config.gcs_count)
 
@@ -172,11 +186,28 @@ defmodule MAVLink.Bench.MultiFleet do
       router: router,
       listen_sockets: listen_sockets,
       clients: clients,
+      vehicle_connections: vehicle_connections,
       counter: counter,
       gcs_pids: gcs_pids,
       flooder_pids: flooder_pids,
       gcs_count: config.gcs_count
     }
+  end
+
+  defp verify_vehicle_links!(vehicle_connections, clients) do
+    for {_id, port, pid} <- vehicle_connections do
+      unless Process.alive?(pid), do: raise("vehicle TCPOut on port #{port} is not alive")
+    end
+
+    if length(clients) != length(vehicle_connections) do
+      raise "expected #{length(vehicle_connections)} TCP clients, got #{length(clients)}"
+    end
+
+    if length(MAVLink.RouteTable.all_wire_peers()) != 0 do
+      raise "bench vehicles must not register as wire peers (cross-forward would skew results)"
+    end
+
+    :ok
   end
 
   defp await_clients(listen_sockets, timeout_ms) do
@@ -251,9 +282,8 @@ defmodule MAVLink.Bench.MultiFleet do
 
   defp profile_targets(setup) do
     wire_pids =
-      MAVLink.RouteTable.all_wire_peers()
-      |> Enum.map(fn {pid, _} -> pid end)
-      |> Enum.uniq()
+      setup.vehicle_connections
+      |> Enum.map(fn {_id, _port, pid} -> pid end)
 
     route_table_pid = Process.whereis(MAVLink.RouteTable)
 
@@ -339,6 +369,7 @@ defmodule MAVLink.Bench.MultiFleet do
     Aggregate rate: #{Float.round(rate, 1)} msg/s
     Per-GCS deliveries:
     #{format_per_gcs(per_gcs, config)}
+    #{format_delivery_balance(per_gcs, config)}
     ETS sizes: routes=#{ets_size(:mavlink_routes)} subscribers=#{ets_size(:mavlink_subscribers)} peers=#{ets_size(:mavlink_peers)}
     Wire connections: #{length(setup.clients)}
     """
@@ -361,6 +392,7 @@ defmodule MAVLink.Bench.MultiFleet do
     Aggregate rate: #{Float.round(rate, 1)} msg/s
     Per-GCS deliveries:
     #{format_per_gcs(per_gcs, config)}
+    #{format_delivery_balance(per_gcs, config)}
     ETS sizes: routes=#{ets_size(:mavlink_routes)} subscribers=#{ets_size(:mavlink_subscribers)} subscriber_index=#{ets_size(:mavlink_subscriber_index)} peers=#{ets_size(:mavlink_peers)}
 
     Profiled processes:
@@ -377,6 +409,38 @@ defmodule MAVLink.Bench.MultiFleet do
 
     == cprof (top calls, whole VM) ==
     #{profile.cprof_report}
+    """
+  end
+
+  defp format_delivery_balance(per_gcs, %{vehicles: vehicles, gcs_count: gcs_count}) do
+    per_vehicle =
+      per_gcs
+      |> Enum.filter(fn {slot, _} -> slot <= min(vehicles, gcs_count) end)
+      |> Enum.map(fn {_slot, count} -> count end)
+
+    wildcard =
+      if gcs_count > vehicles do
+        per_gcs |> Enum.find_value(fn {slot, count} -> if slot == vehicles + 1, do: count end) || 0
+      else
+        0
+      end
+
+    zeros = Enum.count(per_vehicle, &(&1 == 0))
+    min_count = if per_vehicle == [], do: 0, else: Enum.min(per_vehicle)
+    max_count = if per_vehicle == [], do: 0, else: Enum.max(per_vehicle)
+
+    balance =
+      if max_count > 0 do
+        Float.round(min_count / max_count, 2)
+      else
+        0.0
+      end
+
+    """
+    Delivery balance:
+      per-vehicle GCS with zero deliveries: #{zeros}/#{length(per_vehicle)}
+      per-vehicle min/max: #{min_count}/#{max_count} (ratio #{balance})
+      wildcard deliveries: #{wildcard}
     """
   end
 
@@ -462,10 +526,12 @@ defmodule MAVLink.Bench.MultiFleet do
         pid = Process.whereis(name),
         is_pid(pid) do
       try do
-        GenServer.stop(pid, :brutal_kill)
+        GenServer.stop(pid, :normal, 2_000)
       catch
         :exit, _ -> :ok
       end
     end
+
+    Process.sleep(50)
   end
 end

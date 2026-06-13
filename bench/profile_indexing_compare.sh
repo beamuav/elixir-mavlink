@@ -26,6 +26,7 @@ run_fleet_profile() {
 
   echo "=== Profiling $label in $dir (vehicles=$VEHICLES gcs=$GCS port=$base_port) ==="
   cd "$dir"
+  mix deps.get >/dev/null
   MIX_ENV=test \
     FLEET_VEHICLES="$VEHICLES" \
     FLEET_GCS="$GCS" \
@@ -40,10 +41,10 @@ run_fleet_profile "$ROOT" "indexed" "$RESULTS/profile-fleet-indexed.txt" "$BASE_
 
 # Baseline before indexing change
 if [ ! -d "$WORKTREE/.git" ]; then
-  git -C "$ROOT" worktree add "$WORKTREE" "$BASE_REF"
+  git -C "$ROOT" worktree add "$WORKTREE" "$BASE_REF" 2>/dev/null || true
 fi
 
-for file in bench/multi_fleet.ex bench/profile_multi_fleet.exs bench/support/gcs_counter.ex test/support/frame_fixtures.ex; do
+for file in bench/multi_fleet.ex bench/profile_multi_fleet.exs bench/support/gcs_counter.ex test/support/frame_fixtures.ex lib/mavlink/tcp_out_connection.ex; do
   mkdir -p "$WORKTREE/$(dirname "$file")"
   cp "$ROOT/$file" "$WORKTREE/$file"
 done
