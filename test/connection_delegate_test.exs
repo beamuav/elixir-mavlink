@@ -16,7 +16,7 @@ defmodule MAVLink.Test.ConnectionDelegateTest do
     conn = %UDPInConnection{socket: socket, address: ip, port: port}
 
     assert {:ok, {^socket, ^ip, ^port}, ^conn, frame} =
-             UDPInConnection.handle_info({:udp, socket, ip, port, heartbeat_v2_raw()}, conn, dialect)
+             UDPInConnection.parse_incoming({:udp, socket, ip, port, heartbeat_v2_raw()}, conn, dialect)
 
     assert frame.message_id == 0
   end
@@ -29,7 +29,7 @@ defmodule MAVLink.Test.ConnectionDelegateTest do
     # Valid v2 frame with unknown message id 999 - will fail crc/unknown
     garbage = heartbeat_v2_raw() |> corrupt_message_id()
 
-    result = UDPInConnection.handle_info({:udp, socket, ip, port, garbage}, conn, dialect)
+    result = UDPInConnection.parse_incoming({:udp, socket, ip, port, garbage}, conn, dialect)
     assert elem(result, 0) in [:ok, :error]
   end
 
@@ -40,7 +40,7 @@ defmodule MAVLink.Test.ConnectionDelegateTest do
     <<part::binary-size(5), _::binary>> = raw
 
     assert {:error, :incomplete_frame, ^socket, updated} =
-             TCPOutConnection.handle_info({:tcp, socket, part}, conn, dialect)
+             TCPOutConnection.parse_incoming({:tcp, socket, part}, conn, dialect)
 
     assert byte_size(updated.buffer) == 5
   end
@@ -49,7 +49,7 @@ defmodule MAVLink.Test.ConnectionDelegateTest do
     conn = %SerialConnection{port: "tty", baud: 57600, uart: nil, buffer: <<1, 2, 3>>}
 
     assert {:error, :not_a_frame, "tty", updated} =
-             SerialConnection.handle_info({:circuits_uart, "tty", <<255, 255>>}, conn, dialect)
+             SerialConnection.parse_incoming({:circuits_uart, "tty", <<255, 255>>}, conn, dialect)
 
     assert updated.buffer == <<>>
   end

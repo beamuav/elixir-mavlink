@@ -1,82 +1,182 @@
 defmodule MAVLink.UDPInConnection do
   @moduledoc """
-  MAVLink.Router delegate for UDP connections
+  GenServer for inbound UDP MAVLink listen sockets.
   """
-  
+
+  use GenServer
+  @behaviour MAVLink.Connection
+
   require Logger
-  import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, validate_and_unpack: 2]
-  
+
   alias MAVLink.Frame
-  
+  alias MAVLink.{RouteTable, WireConnection}
+
+  import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, validate_and_unpack: 2]
+
   defstruct [
-    address: nil,
-    port: nil,
-    socket: nil]
-  @type t :: %MAVLink.UDPInConnection{
-               address: MAVLink.Types.net_address,
-               port: MAVLink.Types.net_port,
-               socket: pid}
-  
-  # Create connection if this is the first time we've received on it
-  def handle_info({:udp, socket, source_addr, source_port, raw}, nil, dialect) do
-    handle_info(
-      {:udp, socket, source_addr, source_port, raw},
-      %MAVLink.UDPInConnection{address: source_addr, port: source_port, socket: socket},
-      dialect)
+    :listen_address,
+    :listen_port,
+    :address,
+    :port,
+    :socket,
+    :dialect,
+    :clients,
+    :test
+  ]
+
+  def child_spec(opts) do
+    %{
+      id: {__MODULE__, {opts[:listen_address], opts[:listen_port]}},
+      start: {__MODULE__, :start_link, [opts]},
+      restart: :transient
+    }
   end
 
-  def handle_info({:udp, socket, source_addr, source_port, raw}, receiving_connection, dialect) do
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts)
+  end
+
+  def start_test(opts) do
+    GenServer.start_link(__MODULE__, Map.put(opts, :test, true))
+  end
+
+  @impl true
+  def init(%{dialect: dialect, listen_address: address, listen_port: port} = opts) do
+    state = %__MODULE__{
+      dialect: dialect,
+      listen_address: address,
+      listen_port: port,
+      socket: Map.get(opts, :socket),
+      clients: Map.get(opts, :clients, %{}),
+      test: Map.get(opts, :test, false)
+    }
+
+    if state.test do
+      {:ok, state}
+    else
+      send(self(), :connect)
+      {:ok, state}
+    end
+  end
+
+  @impl true
+  def handle_info(:connect, %__MODULE__{listen_address: address, listen_port: port} = state) do
+    case :gen_udp.open(port, [:binary, ip: address, active: true]) do
+      {:ok, socket} ->
+        Logger.info("Opened udpin:#{Enum.join(Tuple.to_list(address), ".")}:#{port}")
+        {:noreply, %{state | socket: socket}}
+
+      other ->
+        Logger.warn(
+          "Could not open udpin:#{Enum.join(Tuple.to_list(address), ".")}:#{port}: #{inspect(other)}. Retrying in 1 second"
+        )
+
+        Process.send_after(self(), :connect, 1000)
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:udp, socket, source_addr, source_port, raw}, state) do
+    {:noreply, ingest({:udp, socket, source_addr, source_port, raw}, state)}
+  end
+
+  def handle_info({:mavlink_forward_raw, packet, key}, state) when is_binary(packet) do
+    case Map.get(state.clients, key) do
+      %__MODULE__{socket: socket, address: address, port: port} ->
+        :gen_udp.send(socket, address, port, packet)
+
+      nil ->
+        :ok
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_info({:mavlink_forward, frame, key}, state) do
+    case Map.get(state.clients, key) do
+      nil -> :ok
+      client -> forward(client, frame)
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_info(_msg, state), do: {:noreply, state}
+
+  def parse_incoming({:udp, socket, source_addr, source_port, raw}, nil, dialect) do
+    parse_incoming(
+      {:udp, socket, source_addr, source_port, raw},
+      %__MODULE__{address: source_addr, port: source_port, socket: socket},
+      dialect
+    )
+  end
+
+  def parse_incoming({:udp, socket, source_addr, source_port, raw}, receiving_connection, dialect) do
+    legacy_handle_udp({:udp, socket, source_addr, source_port, raw}, receiving_connection, dialect)
+  end
+
+  @impl MAVLink.Connection
+  def forward(%__MODULE__{socket: socket, address: address, port: port}, %Frame{version: 1, mavlink_1_raw: packet}) do
+    :gen_udp.send(socket, address, port, packet)
+  end
+
+  def forward(%__MODULE__{socket: socket, address: address, port: port}, %Frame{version: 2, mavlink_2_raw: packet}) do
+    :gen_udp.send(socket, address, port, packet)
+  end
+
+  defp ingest(message, state) do
+    key = connection_key(message)
+
+    connection =
+      case {key, Map.get(state.clients, key)} do
+        {_, %__MODULE__{} = client} -> client
+        {key, nil} when not is_nil(key) -> %__MODULE__{socket: elem(key, 0), address: elem(key, 1), port: elem(key, 2)}
+        _ -> nil
+      end
+
+    case parse_incoming(message, connection, state.dialect) do
+      {:ok, client_key, client, frame} ->
+        RouteTable.register_wire(self(), client_key)
+        client = struct(client, address: client.address, port: client.port, socket: client.socket)
+        WireConnection.route_result({:ok, client_key, client, frame}, self())
+        %{state | clients: Map.put(state.clients, client_key, client)}
+
+      {:error, _reason, client_key, client} when not is_nil(client_key) ->
+        %{state | clients: Map.put(state.clients, client_key, client)}
+
+      {:error, _reason, _client_key, _client} ->
+        state
+    end
+  end
+
+  defp connection_key({:udp, socket, source_addr, source_port, _raw}),
+    do: {socket, source_addr, source_port}
+
+  defp legacy_handle_udp({:udp, socket, source_addr, source_port, raw}, receiving_connection, dialect) do
     case binary_to_frame_and_tail(raw) do
       :not_a_frame ->
-        # Noise or malformed frame
-        :ok = Logger.debug("UDPInConnection.handle_info: Not a frame #{inspect(raw)}")
+        Logger.debug("UDPInConnection.handle_info: Not a frame #{inspect(raw)}")
         {:error, :not_a_frame, {socket, source_addr, source_port}, receiving_connection}
-      {received_frame, _rest} -> # UDP sends frame per packet, so ignore rest
+
+      {received_frame, _rest} ->
         case validate_and_unpack(received_frame, dialect) do
           {:ok, valid_frame} ->
-            # Include address and port in connection key because multiple
-            # clients can connect to a UDP "in" port.
             {:ok, {socket, source_addr, source_port}, receiving_connection, valid_frame}
+
           :unknown_message ->
-            # We re-broadcast valid frames with unknown messages
-            :ok = Logger.debug "rebroadcasting unknown message with id #{received_frame.message_id}}"
-            {:ok, {socket, source_addr, source_port}, receiving_connection, struct(received_frame, [target: :broadcast])}
+            Logger.debug("rebroadcasting unknown message with id #{received_frame.message_id}}")
+
+            {:ok, {socket, source_addr, source_port}, receiving_connection,
+             struct(received_frame, target: :broadcast)}
+
           reason ->
-              :ok = Logger.debug(
-                "UDPInConnection.handle_info: frame received from " <>
-                "#{Enum.join(Tuple.to_list(source_addr), ".")}:#{source_port} failed: #{Atom.to_string(reason)}")
-              {:error, reason, {socket, source_addr, source_port}, receiving_connection}
+            Logger.debug(
+              "UDPInConnection.handle_info: frame received from " <>
+                "#{Enum.join(Tuple.to_list(source_addr), ".")}:#{source_port} failed: #{Atom.to_string(reason)}"
+            )
+
+            {:error, reason, {socket, source_addr, source_port}, receiving_connection}
         end
     end
   end
-  
-  
-  def connect(["udpin", address, port], controlling_process) do
-    # Do not add to connections, we don't want to forward to ourselves
-    # Router.update_route_info() will add connections for other parties that
-    # connect to this socket
-    case :gen_udp.open(port, [:binary, ip: address, active: :true]) do
-      {:ok, socket} ->
-        :ok = Logger.info("Opened udpin:#{Enum.join(Tuple.to_list(address), ".")}:#{port}")
-        :gen_udp.controlling_process(socket, controlling_process)
-      other ->
-        :ok = Logger.warn("Could not open udpin:#{Enum.join(Tuple.to_list(address), ".")}:#{port}: #{inspect(other)}. Retrying in 1 second")
-        :timer.sleep(1000)
-        connect(["udpin", address, port], controlling_process)
-    end
-  end
-  
-  
-  def forward(%MAVLink.UDPInConnection{
-      socket: socket, address: address, port: port},
-      %Frame{version: 1, mavlink_1_raw: packet}) do
-    :gen_udp.send(socket, address, port, packet)
-  end
-  
-  def forward(%MAVLink.UDPInConnection{
-      socket: socket, address: address, port: port},
-      %Frame{version: 2, mavlink_2_raw: packet}) do
-    :gen_udp.send(socket, address, port, packet)
-  end
-
 end

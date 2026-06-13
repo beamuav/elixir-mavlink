@@ -32,8 +32,9 @@ defmodule MAVLink.Test.ForwarderTest do
     frame = heartbeat_frame(target: :broadcast)
     :ok = Forwarder.route(self(), :peer_b, frame)
 
-    assert_receive {:mavlink_forward, received, :peer_a}, 100
-    assert received.message_id == frame.message_id
+    assert_receive {:mavlink_forward_raw, packet, :peer_a}, 100
+    assert is_binary(packet)
+    assert byte_size(packet) > 0
     refute_receive {:mavlink_forward, _, :peer_b}, 50
   end
 
@@ -45,7 +46,7 @@ defmodule MAVLink.Test.ForwarderTest do
       |> struct(target_system: 10, target_component: 20, target: :component)
 
     :ok = Forwarder.route(self(), :source, frame)
-    assert_receive {:mavlink_forward, _, :dest}, 100
+    assert_receive {:mavlink_forward_raw, _, :dest}, 100
   end
 
   test "local source does not update routes" do

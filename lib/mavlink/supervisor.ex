@@ -24,6 +24,7 @@ defmodule MAVLink.Supervisor do
         ]
       ),
       MAVLink.RouteTable,
+      MAVLink.ConnectionSupervisor,
       {MAVLink.LocalConnection, %{system: system, component: component, dialect: dialect}},
       {
         MAVLink.Router,

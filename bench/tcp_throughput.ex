@@ -18,6 +18,8 @@ defmodule MAVLink.Bench.TCPThroughput do
 
     {:ok, listen_socket} = :gen_tcp.listen(port, [:binary, active: false, reuseaddr: true, backlog: 1])
 
+    {:ok, _} = DynamicSupervisor.start_link(MAVLink.ConnectionSupervisor, [], name: MAVLink.ConnectionSupervisor)
+
     {:ok, _} = GenServer.start_link(MAVLink.RouteTable, [], name: MAVLink.RouteTable)
 
     {:ok, _} =
@@ -98,6 +100,7 @@ defmodule MAVLink.Bench.TCPThroughput do
     :gen_tcp.close(listen_socket)
     GenServer.stop(router, :brutal_kill)
     GenServer.stop(MAVLink.LocalConnection, :brutal_kill)
+    GenServer.stop(MAVLink.ConnectionSupervisor, :brutal_kill)
     GenServer.stop(MAVLink.RouteTable, :brutal_kill)
   end
 

@@ -1,82 +1,180 @@
 defmodule MAVLink.TCPOutConnection do
   @moduledoc """
-  MAVLink.Router delegate for TCP connections
-  Typically used to connect to SITL on port 5760
+  GenServer for outbound TCP MAVLink connections (typically SITL on port 5760).
   """
-  
+
+  use GenServer
+  @behaviour MAVLink.Connection
+
   @smallest_mavlink_message 8
-  
+
   require Logger
+
   alias MAVLink.Frame
-  
+  alias MAVLink.{RouteTable, WireConnection}
+
   import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, validate_and_unpack: 2]
-  
-  
-  defstruct [socket: nil, address: nil, port: nil, buffer: <<>>]
-  @type t :: %MAVLink.TCPOutConnection{socket: pid, address: MAVLink.Types.net_address, port: MAVLink.Types.net_port, buffer: binary}
-  
-  
-  def handle_info({:tcp, socket, raw}, receiving_connection=%MAVLink.TCPOutConnection{buffer: buffer}, dialect) do
+
+  defstruct [
+    :socket,
+    :address,
+    :port,
+    :buffer,
+    :dialect,
+    :connection_key,
+    :test
+  ]
+
+  @type t :: %__MODULE__{
+          socket: port() | nil,
+          address: MAVLink.Types.net_address(),
+          port: MAVLink.Types.net_port(),
+          buffer: binary(),
+          dialect: module() | nil,
+          connection_key: term(),
+          test: boolean()
+        }
+
+  def child_spec(opts) do
+    %{
+      id: {__MODULE__, {opts[:address], opts[:port]}},
+      start: {__MODULE__, :start_link, [opts]},
+      restart: :transient
+    }
+  end
+
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts)
+  end
+
+  def start_test(opts) do
+    GenServer.start_link(__MODULE__, Map.put(opts, :test, true))
+  end
+
+  @impl true
+  def init(%{dialect: dialect, address: address, port: port} = opts) do
+    state = %__MODULE__{
+      dialect: dialect,
+      address: address,
+      port: port,
+      buffer: Map.get(opts, :buffer, <<>>),
+      socket: Map.get(opts, :socket),
+      connection_key: Map.get(opts, :connection_key),
+      test: Map.get(opts, :test, false)
+    }
+
+    if state.test do
+      key = state.connection_key || state.socket
+      RouteTable.register_wire(self(), key)
+      {:ok, %{state | connection_key: key}}
+    else
+      send(self(), :connect)
+      {:ok, state}
+    end
+  end
+
+  @impl true
+  def handle_info(:connect, %__MODULE__{address: address, port: port} = state) do
+    case :gen_tcp.connect(address, port, [:binary, active: true]) do
+      {:ok, socket} ->
+        Logger.debug("Opened tcpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}")
+        RouteTable.register_wire(self(), socket)
+        {:noreply, %{state | socket: socket, connection_key: socket, buffer: <<>>}}
+
+      other ->
+        Logger.debug(
+          "Could not open tcpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}: #{inspect(other)}. Retrying in 1 second"
+        )
+
+        Process.send_after(self(), :connect, 1000)
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:tcp_closed, socket}, %__MODULE__{socket: socket} = state) do
+    Process.send_after(self(), :connect, 1000)
+    {:noreply, %{state | socket: nil, buffer: <<>>}}
+  end
+
+  def handle_info({:tcp, socket, raw}, state) do
+    {:noreply, ingest({:tcp, socket, raw}, state)}
+  end
+
+  def handle_info({:mavlink_forward_raw, packet, key}, %__MODULE__{socket: socket, connection_key: key} = state)
+      when is_binary(packet) and not is_nil(socket) do
+    :gen_tcp.send(socket, packet)
+    {:noreply, state}
+  end
+
+  def handle_info({:mavlink_forward, frame, key}, %__MODULE__{connection_key: key} = state) do
+    forward(state, frame)
+    {:noreply, state}
+  end
+
+  def handle_info(_msg, state), do: {:noreply, state}
+
+  # Delegate API retained for unit tests
+  def parse_incoming({:tcp, socket, raw}, %__MODULE__{} = receiving_connection, dialect) do
+    legacy_handle_tcp({:tcp, socket, raw}, receiving_connection, dialect)
+  end
+
+  @impl MAVLink.Connection
+  def forward(%__MODULE__{socket: socket}, %Frame{version: 1, mavlink_1_raw: packet}) do
+    :gen_tcp.send(socket, packet)
+  end
+
+  def forward(%__MODULE__{socket: socket}, %Frame{version: 2, mavlink_2_raw: packet}) do
+    :gen_tcp.send(socket, packet)
+  end
+
+  defp ingest(message, state) do
+    connection = to_delegate(state)
+
+    parse_incoming(message, connection, state.dialect)
+    |> WireConnection.route_result(self())
+    |> from_delegate(state)
+  end
+
+  defp to_delegate(%__MODULE__{socket: socket, buffer: buffer}) do
+    %__MODULE__{socket: socket, buffer: buffer}
+  end
+
+  defp from_delegate(%__MODULE__{socket: socket, buffer: buffer}, state) do
+    %{state | socket: socket, buffer: buffer, connection_key: socket || state.connection_key}
+  end
+
+  defp legacy_handle_tcp({:tcp, socket, raw}, receiving_connection = %__MODULE__{buffer: buffer}, dialect) do
     case binary_to_frame_and_tail(buffer <> raw) do
       :not_a_frame ->
-        # Noise or malformed frame
         if byte_size(buffer) + byte_size(raw) > 0 do
-          :ok = Logger.debug("TCPOutConnection.handle_info: Not a frame #{inspect(buffer <> raw)}")
+          Logger.debug("TCPOutConnection.handle_info: Not a frame #{inspect(buffer <> raw)}")
         end
-        {:error, :not_a_frame, socket, struct(receiving_connection, [buffer: <<>>])}
+
+        {:error, :not_a_frame, socket, struct(receiving_connection, buffer: <<>>)}
+
       {nil, rest} ->
-        {:error, :incomplete_frame, socket, struct(receiving_connection, [buffer: rest])}
+        {:error, :incomplete_frame, socket, struct(receiving_connection, buffer: rest)}
+
       {received_frame, rest} ->
-        # Rest could be a message, return later to try emptying the buffer
         if byte_size(rest) >= @smallest_mavlink_message, do: send(self(), {:tcp, socket, <<>>})
+
         case validate_and_unpack(received_frame, dialect) do
           {:ok, valid_frame} ->
-            {:ok, socket, struct(receiving_connection, [buffer: rest]), valid_frame}
+            {:ok, socket, struct(receiving_connection, buffer: rest), valid_frame}
+
           :unknown_message ->
-            # We re-broadcast valid frames with unknown messages
-            :ok = Logger.debug "rebroadcasting unknown message with id #{received_frame.message_id}}"
-            {:ok, socket, struct(receiving_connection, [buffer: rest]), struct(received_frame, [target: :broadcast])}
+            Logger.debug("rebroadcasting unknown message with id #{received_frame.message_id}}")
+
+            {:ok, socket, struct(receiving_connection, buffer: rest),
+             struct(received_frame, target: :broadcast)}
+
           reason ->
-              :ok = Logger.debug(
-                "TCPOutConnection.handle_info: frame received failed: #{Atom.to_string(reason)}")
-              {:error, reason, socket, struct(receiving_connection, [buffer: rest])}
+            Logger.debug(
+              "TCPOutConnection.handle_info: frame received failed: #{Atom.to_string(reason)}"
+            )
+
+            {:error, reason, socket, struct(receiving_connection, buffer: rest)}
         end
     end
   end
-  
-  
-  def connect(["tcpout", address, port], controlling_process) do
-    case :gen_tcp.connect(address, port, [:binary, active: :true]) do
-      {:ok, socket} ->
-        :ok = Logger.debug("Opened tcpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}")
-        send(
-          controlling_process,
-          {
-            :add_connection,
-            socket,
-            struct(
-              MAVLink.TCPOutConnection,
-              [socket: socket, address: address, port: port]
-            )
-          }
-        )
-        :gen_tcp.controlling_process(socket, controlling_process)
-      other ->
-        :ok = Logger.debug("Could not open tcpout:#{Enum.join(Tuple.to_list(address), ".")}:#{port}: #{inspect(other)}. Retrying in 1 second")
-        :timer.sleep(1000)
-        connect(["tcpout", address, port], controlling_process)
-    end
-  end
-  
-  
-  def forward(%MAVLink.TCPOutConnection{socket: socket},
-      %Frame{version: 1, mavlink_1_raw: packet}) do
-    :gen_tcp.send(socket, packet)
-  end
-
-  def forward(%MAVLink.TCPOutConnection{socket: socket},
-      %Frame{version: 2, mavlink_2_raw: packet}) do
-    :gen_tcp.send(socket, packet)
-  end
-
 end

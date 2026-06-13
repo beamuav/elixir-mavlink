@@ -1,7 +1,7 @@
 defmodule MAVLink.Forwarder do
   @moduledoc false
 
-  alias MAVLink.RouteTable
+  alias MAVLink.{RouteTable, WireConnection}
 
   def route(source_pid, source_connection_key, frame = %MAVLink.Frame{source_system: sys, source_component: comp}) do
     unless source_connection_key == :local do
@@ -26,7 +26,13 @@ defmodule MAVLink.Forwarder do
       end
 
     for {dest_pid, connection_key} <- wire_recipients do
-      send(dest_pid, {:mavlink_forward, frame, connection_key})
+      case WireConnection.wire_packet(frame) do
+        nil ->
+          send(dest_pid, {:mavlink_forward, frame, connection_key})
+
+        packet ->
+          send(dest_pid, {:mavlink_forward_raw, packet, connection_key})
+      end
     end
 
     for {pid, delivery} <- RouteTable.matching_subscribers(frame) do

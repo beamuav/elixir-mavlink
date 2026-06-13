@@ -6,9 +6,9 @@ defmodule MAVLink.Test.RouterRoutingTest do
     ip = {127, 0, 0, 1}
     port = 14_550
     key = {socket, ip, port}
-    add_connection(key, udp_in(socket, ip, port))
+    {:ok, pid} = add_connection(key, udp_in(socket, ip, port))
 
-    send(MAVLink.Router, {:udp, socket, ip, port, heartbeat_v2_raw(source_system: 1, source_component: 1)})
+    send(pid, {:udp, socket, ip, port, heartbeat_v2_raw(source_system: 1, source_component: 1)})
     Process.sleep(50)
 
     assert route_for({1, 1}) == key
@@ -31,12 +31,12 @@ defmodule MAVLink.Test.RouterRoutingTest do
     {:ok, sock_a} = :gen_udp.open(0, [:binary, active: false])
     {:ok, sock_b} = :gen_udp.open(0, [:binary, active: false])
     ip = {127, 0, 0, 1}
-    add_connection({sock_a, ip, 14_551}, udp_in(sock_a, ip, 14_551))
-    add_connection({sock_b, ip, 14_552}, udp_out(sock_b, ip, 14_552))
+    {:ok, pid_a} = add_connection({sock_a, ip, 14_551}, udp_in(sock_a, ip, 14_551))
+    {:ok, _pid_b} = add_connection({sock_b, ip, 14_552}, udp_out(sock_b, ip, 14_552))
 
     :ok = MAVLink.Router.subscribe(message: TestMavlink.Message.Heartbeat)
 
-    send(MAVLink.Router, {:udp, sock_a, ip, 14_551, heartbeat_v2_raw()})
+    send(pid_a, {:udp, sock_a, ip, 14_551, heartbeat_v2_raw()})
     assert_receive msg, 500
     assert msg.__struct__ == TestMavlink.Message.Heartbeat
 
@@ -49,9 +49,9 @@ defmodule MAVLink.Test.RouterRoutingTest do
     ip = {127, 0, 0, 1}
     port = 14_550
     key = {socket, ip, port}
-    add_connection(key, udp_out(socket, ip, port))
+    {:ok, pid} = add_connection(key, udp_out(socket, ip, port))
 
-    send(MAVLink.Router, {:udp, socket, ip, port, heartbeat_v2_raw(source_system: 1, source_component: 1)})
+    send(pid, {:udp, socket, ip, port, heartbeat_v2_raw(source_system: 1, source_component: 1)})
     Process.sleep(50)
 
     assert route_for({1, 1}) == key
@@ -60,17 +60,17 @@ defmodule MAVLink.Test.RouterRoutingTest do
 
   test "add_connection registers connection" do
     {:ok, socket} = :gen_udp.open(0, [:binary, active: false])
-    add_connection(socket, udp_out(socket))
-    assert Map.has_key?(router_state().connections, socket)
+    {:ok, _pid} = add_connection(socket, udp_out(socket))
+    assert is_pid(MAVLink.Router.connection_pid(socket))
     :gen_udp.close(socket)
   end
 
-  test "tcp_closed removes connection" do
+  test "tcp_closed clears socket on connection process" do
     {:ok, socket} = :gen_udp.open(0, [:binary, active: false])
-    add_connection(socket, tcp_out(socket))
-    send(MAVLink.Router, {:tcp_closed, socket})
+    {:ok, pid} = add_connection(socket, tcp_out(socket))
+    send(pid, {:tcp_closed, socket})
     Process.sleep(50)
-    refute Map.has_key?(router_state().connections, socket)
+    assert :sys.get_state(pid).socket == nil
     :gen_udp.close(socket)
   end
 end

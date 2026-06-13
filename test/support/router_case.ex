@@ -4,6 +4,7 @@ defmodule MAVLink.Test.RouterCase do
   use ExUnit.CaseTemplate
 
   alias MAVLink.Test.DialectFixture
+  alias MAVLink.{Router, SerialConnection, TCPOutConnection, UDPInConnection, UDPOutConnection}
 
   using do
     quote do
@@ -30,14 +31,14 @@ defmodule MAVLink.Test.RouterCase do
 
     {:ok, router} =
       GenServer.start_link(
-        MAVLink.Router,
+        Router,
         %{
           dialect: dialect,
           system: 245,
           component: 250,
           connection_strings: []
         },
-        [name: MAVLink.Router]
+        [name: Router]
       )
 
     wait_for_local_connection()
@@ -66,7 +67,7 @@ defmodule MAVLink.Test.RouterCase do
   end
 
   def stop_children do
-    for name <- [MAVLink.Router, MAVLink.LocalConnection, MAVLink.RouteTable] do
+    for name <- [Router, MAVLink.LocalConnection, MAVLink.RouteTable] do
       case Process.whereis(name) do
         nil -> :ok
         pid -> GenServer.stop(pid, :normal, 5_000)
@@ -78,7 +79,16 @@ defmodule MAVLink.Test.RouterCase do
     :exit, _ -> :ok
   end
 
-  def router_state, do: :sys.get_state(MAVLink.Router)
+  def router_state, do: :sys.get_state(Router)
+
+  def connection_state(key), do: :sys.get_state(connection_pid!(key))
+
+  def connection_pid!(key) do
+    case Router.connection_pid(key) do
+      pid when is_pid(pid) -> pid
+      _ -> flunk("no connection registered for #{inspect(key)}")
+    end
+  end
 
   def route_for({sys, comp}) do
     case :ets.lookup(:mavlink_routes, {sys, comp}) do
@@ -95,7 +105,61 @@ defmodule MAVLink.Test.RouterCase do
   end
 
   def add_connection(key, connection) do
-    send(MAVLink.Router, {:add_connection, key, connection})
+    dialect = DialectFixture.ensure_compiled!()
+
+    {:ok, pid} =
+      case connection do
+        nil ->
+          {socket, ip, port} = key
+
+          UDPInConnection.start_test(%{
+            dialect: dialect,
+            listen_address: ip,
+            listen_port: port,
+            socket: socket
+          })
+
+        %UDPInConnection{socket: socket, address: ip, port: port} ->
+          UDPInConnection.start_test(%{
+            dialect: dialect,
+            listen_address: ip,
+            listen_port: port,
+            socket: socket,
+            clients: %{{socket, ip, port} => connection}
+          })
+
+        %UDPOutConnection{socket: socket, address: ip, port: port} ->
+          UDPOutConnection.start_test(%{
+            dialect: dialect,
+            socket: socket,
+            address: ip,
+            port: port,
+            connection_key: key
+          })
+
+        %TCPOutConnection{socket: socket, address: ip, port: port, buffer: buffer} ->
+          TCPOutConnection.start_test(%{
+            dialect: dialect,
+            socket: socket,
+            address: ip,
+            port: port,
+            buffer: buffer,
+            connection_key: key
+          })
+
+        %SerialConnection{port: port, baud: baud, uart: uart, buffer: buffer} ->
+          SerialConnection.start_test(%{
+            dialect: dialect,
+            port: port,
+            baud: baud,
+            uart: uart,
+            buffer: buffer,
+            connection_key: key
+          })
+      end
+
+    send(Router, {:register_connection, key, pid})
     Process.sleep(10)
+    {:ok, pid}
   end
 end
