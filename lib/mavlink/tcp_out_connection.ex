@@ -106,6 +106,7 @@ defmodule MAVLink.TCPOutConnection do
     new_state =
       state
       |> then(&ingest({:tcp, socket, raw}, &1))
+      |> drain_tcp(socket)
       |> rearm_socket()
 
     {:noreply, new_state}
@@ -144,6 +145,17 @@ defmodule MAVLink.TCPOutConnection do
     parse_incoming(message, connection, state.dialect)
     |> WireConnection.route_result(self())
     |> from_delegate(state)
+  end
+
+  defp drain_tcp(state, socket) do
+    receive do
+      {:tcp, ^socket, raw} ->
+        state
+        |> then(&ingest({:tcp, socket, raw}, &1))
+        |> drain_tcp(socket)
+    after
+      0 -> state
+    end
   end
 
   defp to_delegate(%__MODULE__{socket: socket, buffer: buffer}) do

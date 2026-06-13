@@ -68,3 +68,21 @@ MIX_ENV=test mix benchmark.backpressure
 `{:active, :once}` on TCPOut re-arms after each processed message, preventing
 unbounded `{:tcp, ...}` mailbox growth. Atomic subscriber removes Agent
 GenServer contention from the measurement path.
+
+## Update: TCP mailbox drain loop (after-drain-loop)
+
+After handling one `{:tcp, socket, raw}`, `drain_tcp/2` pulls additional
+`{:tcp, ^socket, _}` messages from the GenServer mailbox (including self-sent
+`{:tcp, socket, <<>>}` triggers for multi-frame buffers) before a single
+`rearm_socket/1`. This batches coalesced TCP data through one GenServer turn
+instead of one `handle_info` + `setopts` per frame.
+
+| Version | Rate (msg/s) | TCP consumer max_queue (under eprof) |
+|---------|--------------|--------------------------------------|
+| Phase 5 + active :once + atomics | ~1,200 | ~17,600 |
+| + mailbox drain loop | **~200,000–210,000** | ~17,600 (eprof-limited to ~1,180) |
+
+Headline throughput (`mix benchmark.backpressure`) jumps ~170× because the prior
+~1,200 msg/s ceiling was mostly GenServer dispatch + `inet:setopts` per frame
+within coalesced TCP segments, not raw parse throughput. Profiling still reports
+~1,180 msg/s because eprof on the consumer dominates the measurement window.
