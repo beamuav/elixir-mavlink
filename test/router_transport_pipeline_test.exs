@@ -28,7 +28,7 @@ defmodule MAVLink.Test.RouterTransportPipelineTest do
     send(MAVLink.Router, {:udp, socket, ip, port, heartbeat_v2_raw(source_system: 3, source_component: 1)})
     assert_receive msg, 500
     assert msg.__struct__ == TestMavlink.Message.Heartbeat
-    assert router_state().routes[{3, 1}] == {socket, ip, port}
+    assert route_for({3, 1}) == {socket, ip, port}
     :gen_udp.close(socket)
   end
 
@@ -41,7 +41,7 @@ defmodule MAVLink.Test.RouterTransportPipelineTest do
     send(MAVLink.Router, {:udp, socket, ip, port, heartbeat_v2_raw(source_system: 4, source_component: 1)})
     Process.sleep(50)
 
-    assert router_state().routes[{4, 1}] == {socket, ip, port}
+    assert route_for({4, 1}) == {socket, ip, port}
     :gen_udp.close(socket)
   end
 
@@ -77,7 +77,7 @@ defmodule MAVLink.Test.RouterTransportPipelineTest do
 
     send(MAVLink.Router, {:tcp, socket, rest})
     Process.sleep(50)
-    assert router_state().routes[{1, 1}] == socket
+    assert route_for({1, 1}) == socket
     :gen_udp.close(socket)
   end
 
@@ -93,7 +93,7 @@ defmodule MAVLink.Test.RouterTransportPipelineTest do
 
     send(MAVLink.Router, {:circuits_uart, port, rest})
     Process.sleep(50)
-    assert router_state().routes[{1, 1}] == port
+    assert route_for({1, 1}) == port
   end
 
   test "pack_and_send routes through local pipeline" do

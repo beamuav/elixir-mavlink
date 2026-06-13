@@ -25,7 +25,8 @@ defmodule MAVLink.Mixfile do
   defp aliases do
     [
       test: "test --no-start",
-      benchmark: "run --no-start bench/tcp_throughput.exs"
+      benchmark: "run --no-start bench/tcp_throughput.exs",
+      "benchmark.after": "run --no-start bench/tcp_throughput_after.exs"
     ]
   end
 

@@ -1,11 +1,14 @@
 defmodule MAVLink.Bench.TCPThroughput do
   @moduledoc false
 
-  def run do
+  def run(opts \\ []) do
     Code.require_file("test/support/dialect_fixture.ex", File.cwd!())
     Code.require_file("test/support/frame_fixtures.ex", File.cwd!())
 
     alias MAVLink.Test.{DialectFixture, FrameFixtures}
+
+    output_file = Keyword.get(opts, :output_file, "bench/results/baseline.txt")
+    label = Keyword.get(opts, :label, "baseline")
 
     port = 15_760
     warmup_s = 2
@@ -14,6 +17,15 @@ defmodule MAVLink.Bench.TCPThroughput do
     raw = FrameFixtures.heartbeat_v2_raw(source_system: 1, source_component: 1)
 
     {:ok, listen_socket} = :gen_tcp.listen(port, [:binary, active: false, reuseaddr: true, backlog: 1])
+
+    {:ok, _} = GenServer.start_link(MAVLink.RouteTable, [], name: MAVLink.RouteTable)
+
+    {:ok, _} =
+      GenServer.start_link(
+        MAVLink.LocalConnection,
+        %{system: 245, component: 250, dialect: dialect},
+        name: MAVLink.LocalConnection
+      )
 
     {:ok, router} =
       GenServer.start_link(
@@ -59,7 +71,7 @@ defmodule MAVLink.Bench.TCPThroughput do
 
     rate = if elapsed_ms > 0, do: count / (elapsed_ms / 1000), else: 0.0
 
-    IO.puts("TCP throughput benchmark")
+    IO.puts("TCP throughput benchmark (#{label})")
     IO.puts("  Elixir #{System.version()} OTP #{System.otp_release()}")
     IO.puts("  Measurement window: #{elapsed_ms} ms")
     IO.puts("  Messages received: #{count}")
@@ -68,9 +80,9 @@ defmodule MAVLink.Bench.TCPThroughput do
     File.mkdir_p!("bench/results")
 
     File.write!(
-      "bench/results/baseline.txt",
+      output_file,
       """
-      TCP throughput benchmark (baseline)
+      TCP throughput benchmark (#{label})
       Elixir #{System.version()} OTP #{System.otp_release()}
       Measurement window: #{elapsed_ms} ms
       Messages received: #{count}
@@ -78,13 +90,15 @@ defmodule MAVLink.Bench.TCPThroughput do
       """
     )
 
-    IO.puts("\nWrote bench/results/baseline.txt")
+    IO.puts("\nWrote #{output_file}")
 
     Process.exit(counter_pid, :kill)
     Process.exit(flooder, :kill)
     :gen_tcp.close(client)
     :gen_tcp.close(listen_socket)
     GenServer.stop(router, :brutal_kill)
+    GenServer.stop(MAVLink.LocalConnection, :brutal_kill)
+    GenServer.stop(MAVLink.RouteTable, :brutal_kill)
   end
 
   defp count_loop(counter) do

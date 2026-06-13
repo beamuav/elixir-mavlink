@@ -71,12 +71,12 @@ defmodule MAVLink.TCPOutConnection do
   
   def forward(%MAVLink.TCPOutConnection{socket: socket},
       %Frame{version: 1, mavlink_1_raw: packet}) do
-    :gen_udp.send(socket, packet)
+    :gen_tcp.send(socket, packet)
   end
-  
+
   def forward(%MAVLink.TCPOutConnection{socket: socket},
       %Frame{version: 2, mavlink_2_raw: packet}) do
-    :gen_udp.send(socket, packet)
+    :gen_tcp.send(socket, packet)
   end
 
 end

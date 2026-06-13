@@ -11,7 +11,7 @@ defmodule MAVLink.Test.RouterRoutingTest do
     send(MAVLink.Router, {:udp, socket, ip, port, heartbeat_v2_raw(source_system: 1, source_component: 1)})
     Process.sleep(50)
 
-    assert router_state().routes[{1, 1}] == key
+    assert route_for({1, 1}) == key
     :gen_udp.close(socket)
   end
 
@@ -24,7 +24,7 @@ defmodule MAVLink.Test.RouterRoutingTest do
              )
 
     Process.sleep(50)
-    assert router_state().routes == %{}
+    assert routes_map() == %{}
   end
 
   test "broadcast delivers to local subscriber" do
@@ -54,7 +54,7 @@ defmodule MAVLink.Test.RouterRoutingTest do
     send(MAVLink.Router, {:udp, socket, ip, port, heartbeat_v2_raw(source_system: 1, source_component: 1)})
     Process.sleep(50)
 
-    assert router_state().routes[{1, 1}] == key
+    assert route_for({1, 1}) == key
     :gen_udp.close(socket)
   end
 

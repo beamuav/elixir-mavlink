@@ -16,9 +16,17 @@ defmodule MAVLink.Test.RouterCase do
   end
 
   setup _tags do
-    stop_router()
+    stop_children()
     clear_subscription_cache()
     dialect = DialectFixture.ensure_compiled!()
+
+    {:ok, _} = GenServer.start_link(MAVLink.RouteTable, [], name: MAVLink.RouteTable)
+    {:ok, _} =
+      GenServer.start_link(
+        MAVLink.LocalConnection,
+        %{system: 245, component: 250, dialect: dialect},
+        name: MAVLink.LocalConnection
+      )
 
     {:ok, router} =
       GenServer.start_link(
@@ -34,7 +42,7 @@ defmodule MAVLink.Test.RouterCase do
 
     wait_for_local_connection()
 
-    on_exit(fn -> stop_router() end)
+    on_exit(fn -> stop_children() end)
 
     {:ok, router: router, dialect: dialect}
   end
@@ -48,7 +56,7 @@ defmodule MAVLink.Test.RouterCase do
 
   def wait_for_local_connection do
     Enum.reduce_while(1..100, :error, fn _, _ ->
-      if Map.has_key?(router_state().connections, :local) do
+      if Process.whereis(MAVLink.LocalConnection) do
         {:halt, :ok}
       else
         Process.sleep(10)
@@ -57,10 +65,12 @@ defmodule MAVLink.Test.RouterCase do
     end)
   end
 
-  def stop_router do
-    case Process.whereis(MAVLink.Router) do
-      nil -> :ok
-      pid -> GenServer.stop(pid, :normal, 5_000)
+  def stop_children do
+    for name <- [MAVLink.Router, MAVLink.LocalConnection, MAVLink.RouteTable] do
+      case Process.whereis(name) do
+        nil -> :ok
+        pid -> GenServer.stop(pid, :normal, 5_000)
+      end
     end
   rescue
     _ -> :ok
@@ -69,6 +79,20 @@ defmodule MAVLink.Test.RouterCase do
   end
 
   def router_state, do: :sys.get_state(MAVLink.Router)
+
+  def route_for({sys, comp}) do
+    case :ets.lookup(:mavlink_routes, {sys, comp}) do
+      [{{^sys, ^comp}, {_pid, key}}] -> key
+      [] -> nil
+    end
+  end
+
+  def routes_map do
+    :mavlink_routes
+    |> :ets.tab2list()
+    |> Enum.map(fn {{sys, comp}, {_pid, key}} -> {{sys, comp}, key} end)
+    |> Map.new()
+  end
 
   def add_connection(key, connection) do
     send(MAVLink.Router, {:add_connection, key, connection})
