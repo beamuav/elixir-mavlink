@@ -5,7 +5,7 @@ defmodule MAVLink.Mixfile do
     [
       app: :mavlink,
       version: "0.9.0",
-      elixir: "~> 1.9",
+      elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       description: description(),
       package: package(),
@@ -20,7 +20,8 @@ defmodule MAVLink.Mixfile do
   # See https://virviil.github.io/2016/10/26/elixir-testing-without-starting-supervision-tree/
   defp aliases do
     [
-      test: "test --no-start"
+      test: "test --no-start",
+      benchmark: "run --no-start bench/tcp_throughput.exs"
     ]
   end
 
@@ -44,16 +45,16 @@ defmodule MAVLink.Mixfile do
         connections: []
       ],
       mod: {MAVLink.Application, []},
-      extra_applications: [:logger]
+      extra_applications: [:logger, :xmerl]
     ]
   end
 
   defp deps do
     [
-      {:circuits_uart, "~> 1.4"},
+      {:circuits_uart, "~> 1.5.0"},
       {:poolboy, "~> 1.5"},
       {:dialyzex, "~> 1.2.0", only: :dev, runtime: false},
-      {:ex_doc, "~> 0.20.2", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.34.0", only: :dev, runtime: false}
     ]
   end
 
