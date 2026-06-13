@@ -14,7 +14,7 @@ defmodule MAVLink.SerialConnection do
   alias Circuits.UART
   alias MAVLink.{MailboxDrain, RouteTable, WireConnection}
 
-  import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, validate_and_unpack: 2]
+  import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, prepare_for_route: 2]
 
   defstruct [
     :port,
@@ -188,7 +188,7 @@ defmodule MAVLink.SerialConnection do
       {received_frame, rest} ->
         if byte_size(rest) >= @smallest_mavlink_message, do: send(self(), {:circuits_uart, port, <<>>})
 
-        case validate_and_unpack(received_frame, dialect) do
+        case prepare_for_route(received_frame, dialect) do
           {:ok, valid_frame} ->
             {:ok, port, struct(receiving_connection, buffer: rest), valid_frame}
 

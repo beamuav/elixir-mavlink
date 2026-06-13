@@ -13,7 +13,7 @@ defmodule MAVLink.TCPOutConnection do
   alias MAVLink.Frame
   alias MAVLink.{MailboxDrain, RouteTable, WireConnection}
 
-  import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, validate_and_unpack: 2]
+  import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, prepare_for_route: 2]
 
   defstruct [
     :socket,
@@ -191,7 +191,7 @@ defmodule MAVLink.TCPOutConnection do
       {received_frame, rest} ->
         if byte_size(rest) >= @smallest_mavlink_message, do: send(self(), {:tcp, socket, <<>>})
 
-        case validate_and_unpack(received_frame, dialect) do
+        case prepare_for_route(received_frame, dialect) do
           {:ok, valid_frame} ->
             {:ok, socket, struct(receiving_connection, buffer: rest), valid_frame}
 

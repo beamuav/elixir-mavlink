@@ -68,7 +68,8 @@ defmodule MAVLink.LocalConnection do
         source_component: 0,
         target_system: 0,
         target_component: 0,
-        as_frame: false
+        as_frame: false,
+        as_raw: false
       }
       |> Map.merge(query)
 

@@ -11,7 +11,7 @@ defmodule MAVLink.UDPInConnection do
   alias MAVLink.Frame
   alias MAVLink.{MailboxDrain, RouteTable, WireConnection}
 
-  import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, validate_and_unpack: 2]
+  import MAVLink.Frame, only: [binary_to_frame_and_tail: 1, prepare_for_route: 2]
 
   defstruct [
     :listen_address,
@@ -182,7 +182,7 @@ defmodule MAVLink.UDPInConnection do
         {:error, :not_a_frame, {socket, source_addr, source_port}, receiving_connection}
 
       {received_frame, _rest} ->
-        case validate_and_unpack(received_frame, dialect) do
+        case prepare_for_route(received_frame, dialect) do
           {:ok, valid_frame} ->
             {:ok, {socket, source_addr, source_port}, receiving_connection, valid_frame}
 

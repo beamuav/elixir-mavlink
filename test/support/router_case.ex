@@ -20,6 +20,7 @@ defmodule MAVLink.Test.RouterCase do
     stop_children()
     clear_subscription_cache()
     dialect = DialectFixture.ensure_compiled!()
+    Application.put_env(:mavlink, :dialect, dialect)
 
     {:ok, _} = GenServer.start_link(MAVLink.RouteTable, [], name: MAVLink.RouteTable)
     {:ok, _} =

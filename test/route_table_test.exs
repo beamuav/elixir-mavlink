@@ -7,7 +7,8 @@ defmodule MAVLink.Test.RouteTableTest do
 
   setup do
     stop_route_table()
-    DialectFixture.ensure_compiled!()
+    dialect = DialectFixture.ensure_compiled!()
+    Application.put_env(:mavlink, :dialect, dialect)
     {:ok, _} = GenServer.start_link(RouteTable, [], name: RouteTable)
     on_exit(fn -> stop_route_table() end)
     :ok
@@ -106,6 +107,31 @@ defmodule MAVLink.Test.RouteTableTest do
     assert [] = RouteTable.matching_subscribers(heartbeat)
     assert [{^subscriber, msg}] = RouteTable.matching_subscribers(vfr)
     assert msg.__struct__ == TestMavlink.Message.VfrHud
+  end
+
+  test "as_raw subscriber receives wire bytes" do
+    subscriber = self()
+
+    :ok =
+      RouteTable.subscribe(
+        %{
+          message: TestMavlink.Message.Heartbeat,
+          source_system: 0,
+          source_component: 0,
+          target_system: 0,
+          target_component: 0,
+          as_frame: false,
+          as_raw: true
+        },
+        subscriber
+      )
+
+    raw = heartbeat_v2_raw()
+    {frame, <<>>} = MAVLink.Frame.binary_to_frame_and_tail(raw)
+
+    assert {:ok, routed} = MAVLink.Frame.validate_checksum(frame, TestMavlink)
+
+    assert [{^subscriber, ^raw}] = RouteTable.matching_subscribers(routed)
   end
 
   test "unsubscribe removes subscriber on DOWN" do

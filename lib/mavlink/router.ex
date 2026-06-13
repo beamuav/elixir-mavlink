@@ -47,7 +47,7 @@ defmodule MAVLink.Router do
   end
 
   @type subscribe_query_id_key :: :source_system | :source_component | :target_system | :target_component
-  @spec subscribe([{:message, Message.t} | {subscribe_query_id_key, 0..255} | {:as_frame, boolean}]) ::
+  @spec subscribe([{:message, Message.t} | {subscribe_query_id_key, 0..255} | {:as_frame, boolean} | {:as_raw, boolean}]) ::
           :ok | {:error, :invalid_message}
   def subscribe(query \\ []) do
     with message <- Keyword.get(query, :message),
@@ -59,7 +59,8 @@ defmodule MAVLink.Router do
           source_component: 0,
           target_system: 0,
           target_component: 0,
-          as_frame: false
+          as_frame: false,
+          as_raw: false
         ]
         |> Keyword.merge(query)
         |> Enum.into(%{})
